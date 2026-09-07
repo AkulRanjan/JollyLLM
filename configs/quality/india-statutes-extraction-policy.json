@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "india-statutes-monotonic-extraction-v1",
+  "status": "approved",
+  "approved_on": "2026-09-06",
+  "approval_scope": "Parser policy for locally supplied BNS, BNSS, and CrPC PDFs; not a legal-content accuracy certification.",
+  "audit_report_content_sha256": "bb6569ef21b0057d0089703f461b09d1d5e38fa3bdae253cc8a48bb3af847a17",
+  "source_sha256": {
+    "bns": "c9da896e7a16c481a46235789f74f545b7a9ed7f3a5c8049d0b1b9252c6731f4",
+    "bnss": "fcb44b539a4dafe8c5bdba816466e4185c85987059d9725a9e784751f271be7d",
+    "crpc": "5bb6514251a9ec6375b2c894cef5280dab0d1c3cca1e0f4a1e57f29b54033d72"
+  },
+  "decisions": [
+    "Retain the strictly increasing Act provision sequence, including valid alphabetic section suffixes.",
+    "Keep the first occurrence where a section number repeats in a supplied consolidated PDF.",
+    "Exclude embedded state-amendment, schedule, appendix, form, and restarted numbering from the searchable Act corpus.",
+    "Keep source hashes and PDF page ranges with each retained provision."
+  ],
+  "known_limitations": [
+    "The retained text still requires legal-domain review before substantive legal use.",
+    "Evidence Act material is not included in this snapshot."
+  ]
+}

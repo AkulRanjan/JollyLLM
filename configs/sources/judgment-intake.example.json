@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "intake_status": "template",
+  "required_per_document": [
+    "local_path",
+    "source_name",
+    "source_locator",
+    "license_label",
+    "court",
+    "decision_date",
+    "official_or_reporter_citation"
+  ],
+  "documents": [
+    {
+      "local_path": "data/raw/judgments/source-name/example.pdf",
+      "source_name": "replace-with-approved-source",
+      "source_locator": "record-local-acquisition-source",
+      "license_label": "record-permitted-local-use",
+      "court": "Supreme Court of India",
+      "decision_date": "YYYY-MM-DD",
+      "official_or_reporter_citation": "record-if-available"
+    }
+  ]
+}

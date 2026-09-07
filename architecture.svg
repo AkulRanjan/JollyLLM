@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1400" viewBox="0 0 1300 1400" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4A4A4A"/>
+    </marker>
+    <marker id="arrowDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8A8A8A"/>
+    </marker>
+  </defs>
+
+  <rect width="1300" height="1400" fill="#FBFAF7"/>
+
+  <text x="650" y="42" text-anchor="middle" font-size="25" font-weight="600" fill="#151515">Graph-Augmented Fine-Tuning of Open-Source LLMs for Legal Document Understanding</text>
+  <text x="650" y="66" text-anchor="middle" font-size="14" fill="#666">System architecture: knowledge graph construction, subgraph retrieval, GNN encoding, soft-token injection, parameter-efficient adaptation</text>
+
+  <!-- Stage labels column -->
+  <text x="28" y="130" font-size="12" font-weight="600" fill="#8A8A8A" transform="rotate(-90 28 130)">STAGE 1</text>
+  <text x="28" y="420" font-size="12" font-weight="600" fill="#8A8A8A" transform="rotate(-90 28 420)">STAGE 2</text>
+  <text x="28" y="700" font-size="12" font-weight="600" fill="#8A8A8A" transform="rotate(-90 28 700)">STAGE 3</text>
+  <text x="28" y="1010" font-size="12" font-weight="600" fill="#8A8A8A" transform="rotate(-90 28 1010)">STAGE 4</text>
+  <text x="28" y="1300" font-size="12" font-weight="600" fill="#8A8A8A" transform="rotate(-90 28 1300)">STAGE 5</text>
+
+  <!-- ============ BAND 1: CORPORA ============ -->
+  <rect x="90" y="90" width="340" height="72" rx="7" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.6"/>
+  <text x="260" y="119" text-anchor="middle" font-size="15" font-weight="600" fill="#1B2C3A">Statutes and codified law</text>
+  <text x="260" y="141" text-anchor="middle" font-size="12" fill="#4A5B69">US Code, EUR-Lex, IPC / BNS / CrPC</text>
+
+  <rect x="470" y="90" width="340" height="72" rx="7" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.6"/>
+  <text x="640" y="119" text-anchor="middle" font-size="15" font-weight="600" fill="#1B2C3A">Judgments and precedents</text>
+  <text x="640" y="141" text-anchor="middle" font-size="12" fill="#4A5B69">CAP, ECtHR, ILDC, Indian Kanoon crawl</text>
+
+  <rect x="850" y="90" width="340" height="72" rx="7" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.6"/>
+  <text x="1020" y="119" text-anchor="middle" font-size="15" font-weight="600" fill="#1B2C3A">Contracts and filings</text>
+  <text x="1020" y="141" text-anchor="middle" font-size="12" fill="#4A5B69">CUAD, ContractNLI, MAUD, LEDGAR</text>
+
+  <line x1="260" y1="162" x2="260" y2="196" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="162" x2="640" y2="196" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="1020" y1="162" x2="1020" y2="196" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 2: GRAPH CONSTRUCTION ============ -->
+  <rect x="90" y="200" width="1100" height="118" rx="8" fill="#EAF3EC" stroke="#4E7C5A" stroke-width="1.8"/>
+  <text x="110" y="224" font-size="14" font-weight="600" fill="#22402C">Graph construction pipeline (offline, rule-based plus model-based extraction)</text>
+
+  <rect x="110" y="238" width="252" height="62" rx="6" fill="#FFFFFF" stroke="#4E7C5A" stroke-width="1.2"/>
+  <text x="236" y="262" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">Citation and cross-</text>
+  <text x="236" y="279" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">reference parsing</text>
+
+  <rect x="380" y="238" width="252" height="62" rx="6" fill="#FFFFFF" stroke="#4E7C5A" stroke-width="1.2"/>
+  <text x="506" y="262" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">Statute and provision</text>
+  <text x="506" y="279" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">linking</text>
+
+  <rect x="650" y="238" width="252" height="62" rx="6" fill="#FFFFFF" stroke="#4E7C5A" stroke-width="1.2"/>
+  <text x="776" y="262" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">Rhetorical role</text>
+  <text x="776" y="279" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">segmentation</text>
+
+  <rect x="920" y="238" width="252" height="62" rx="6" fill="#FFFFFF" stroke="#4E7C5A" stroke-width="1.2"/>
+  <text x="1046" y="262" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">Entity linking and</text>
+  <text x="1046" y="279" text-anchor="middle" font-size="12.5" font-weight="600" fill="#22402C">coreference resolution</text>
+
+  <line x1="640" y1="318" x2="640" y2="352" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 3: KG ============ -->
+  <rect x="90" y="356" width="1100" height="132" rx="8" fill="#FDF3E3" stroke="#B8862F" stroke-width="1.8"/>
+  <text x="650" y="382" text-anchor="middle" font-size="16" font-weight="700" fill="#5C4310">Legal heterogeneous knowledge graph  G = (V, E, R)</text>
+
+  <text x="120" y="412" font-size="12.5" font-weight="600" fill="#5C4310">Node types V</text>
+  <text x="120" y="432" font-size="12" fill="#4A3A16">case document, paragraph / rhetorical unit, statutory provision,</text>
+  <text x="120" y="450" font-size="12" fill="#4A3A16">contract clause, legal concept, court, party entity, date anchor</text>
+  <text x="120" y="472" font-size="11.5" fill="#7A6534">node features initialised with LegalBERT / InLegalBERT text embeddings</text>
+
+  <line x1="660" y1="398" x2="660" y2="478" stroke="#B8862F" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <text x="690" y="412" font-size="12.5" font-weight="600" fill="#5C4310">Relation types R</text>
+  <text x="690" y="432" font-size="12" fill="#4A3A16">cites, is-cited-by, overrules, distinguishes, amends, defines,</text>
+  <text x="690" y="450" font-size="12" fill="#4A3A16">contains (hierarchy), refers-to-provision, co-occurs, temporal-precedes</text>
+  <text x="690" y="472" font-size="11.5" fill="#7A6534">typed and directed; supports relation-specific message passing</text>
+
+  <line x1="400" y1="488" x2="400" y2="534" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 4: RETRIEVAL + INPUT ============ -->
+  <rect x="90" y="538" width="620" height="76" rx="7" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.6"/>
+  <text x="400" y="565" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2E2350">Query-conditioned subgraph retrieval</text>
+  <text x="400" y="588" text-anchor="middle" font-size="12" fill="#4A3F6B">dense seed node matching, k-hop expansion, PCST pruning to a budget of N nodes</text>
+
+  <rect x="750" y="538" width="440" height="76" rx="7" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.6"/>
+  <text x="970" y="565" text-anchor="middle" font-size="14.5" font-weight="600" fill="#222">Input document and instruction</text>
+  <text x="970" y="588" text-anchor="middle" font-size="12" fill="#555">long-context chunking, up to 32k tokens</text>
+
+  <line x1="400" y1="614" x2="400" y2="650" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="970" y1="614" x2="970" y2="650" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="970" y1="576" x2="716" y2="576" stroke="#8A8A8A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <text x="843" y="568" text-anchor="middle" font-size="11" fill="#7A7A7A">query embedding</text>
+
+  <!-- ============ BAND 5: ENCODERS ============ -->
+  <rect x="90" y="654" width="620" height="86" rx="7" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.6"/>
+  <text x="400" y="681" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2E2350">Heterogeneous graph encoder</text>
+  <text x="400" y="703" text-anchor="middle" font-size="12" fill="#4A3F6B">R-GCN or HGT, 2 to 3 layers, relation-specific weights, type-aware attention</text>
+  <text x="400" y="724" text-anchor="middle" font-size="12" fill="#4A3F6B">output: node embeddings H in R^(N x d_g), pooled to K structural vectors</text>
+
+  <rect x="750" y="654" width="440" height="86" rx="7" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.6"/>
+  <text x="970" y="690" text-anchor="middle" font-size="14.5" font-weight="600" fill="#222">Tokenizer and embedding layer</text>
+  <text x="970" y="713" text-anchor="middle" font-size="12" fill="#555">frozen base-model embeddings, d_model</text>
+
+  <line x1="400" y1="740" x2="400" y2="776" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="970" y1="740" x2="970" y2="776" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 6: PROJECTOR ============ -->
+  <rect x="90" y="780" width="620" height="76" rx="7" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.6"/>
+  <text x="400" y="807" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2E2350">Cross-modal projector (trainable)</text>
+  <text x="400" y="830" text-anchor="middle" font-size="12" fill="#4A3F6B">2-layer MLP with GELU, maps d_g to d_model, yields K graph soft tokens</text>
+
+  <rect x="750" y="780" width="440" height="76" rx="7" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.6"/>
+  <text x="970" y="816" text-anchor="middle" font-size="14.5" font-weight="600" fill="#222">Text token embeddings</text>
+  <text x="970" y="838" text-anchor="middle" font-size="12" fill="#555">instruction plus document</text>
+
+  <line x1="400" y1="856" x2="400" y2="884" stroke="#4A4A4A" stroke-width="1.6"/>
+  <line x1="970" y1="856" x2="970" y2="884" stroke="#4A4A4A" stroke-width="1.6"/>
+  <line x1="400" y1="884" x2="970" y2="884" stroke="#4A4A4A" stroke-width="1.6"/>
+  <line x1="640" y1="884" x2="640" y2="912" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 7: PREFIX ASSEMBLY ============ -->
+  <rect x="250" y="916" width="780" height="58" rx="7" fill="#FFFFFF" stroke="#4A4A4A" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="640" y="951" text-anchor="middle" font-size="14" font-weight="600" fill="#222">Prefix assembly:  [ K graph soft tokens ] || [ instruction ] || [ document tokens ]</text>
+
+  <line x1="640" y1="974" x2="640" y2="1006" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 8: LLM ============ -->
+  <rect x="90" y="1010" width="1100" height="126" rx="8" fill="#FBEAEA" stroke="#A9524F" stroke-width="1.9"/>
+  <text x="650" y="1040" text-anchor="middle" font-size="16.5" font-weight="700" fill="#5E2422">Open-source base LLM, 4-bit quantised and frozen</text>
+  <text x="650" y="1064" text-anchor="middle" font-size="13" fill="#6E3532">Llama 3.1 8B Instruct  /  Qwen 2.5 7B  /  Mistral 7B v0.3  /  SaulLM 7B (legal-adapted)</text>
+
+  <rect x="150" y="1078" width="470" height="44" rx="6" fill="#FFFFFF" stroke="#A9524F" stroke-width="1.2"/>
+  <text x="385" y="1105" text-anchor="middle" font-size="12.5" fill="#5E2422">LoRA / QLoRA adapters on q, k, v, o and MLP projections (r = 16 to 64)</text>
+
+  <rect x="660" y="1078" width="470" height="44" rx="6" fill="#FFFFFF" stroke="#A9524F" stroke-width="1.2"/>
+  <text x="895" y="1105" text-anchor="middle" font-size="12.5" fill="#5E2422">trainable parameters: LoRA + projector + GNN, roughly 1 to 2 percent of total</text>
+
+  <line x1="640" y1="1136" x2="640" y2="1168" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 9: OUTPUTS ============ -->
+  <rect x="90" y="1172" width="255" height="72" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.4"/>
+  <text x="217" y="1200" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">Judgment and outcome</text>
+  <text x="217" y="1218" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">prediction</text>
+  <text x="217" y="1236" text-anchor="middle" font-size="11" fill="#4A5B69">ILDC, ECtHR, CaseHOLD</text>
+
+  <rect x="372" y="1172" width="255" height="72" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.4"/>
+  <text x="499" y="1200" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">Statute and precedent</text>
+  <text x="499" y="1218" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">retrieval</text>
+  <text x="499" y="1236" text-anchor="middle" font-size="11" fill="#4A5B69">AILA, COLIEE, IL-TUR</text>
+
+  <rect x="654" y="1172" width="255" height="72" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.4"/>
+  <text x="781" y="1200" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">Clause and obligation</text>
+  <text x="781" y="1218" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">extraction</text>
+  <text x="781" y="1236" text-anchor="middle" font-size="11" fill="#4A5B69">CUAD, LEDGAR, MAUD</text>
+
+  <rect x="936" y="1172" width="255" height="72" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.4"/>
+  <text x="1063" y="1200" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">Grounded summarisation</text>
+  <text x="1063" y="1218" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2C3A">with verifiable citations</text>
+  <text x="1063" y="1236" text-anchor="middle" font-size="11" fill="#4A5B69">BillSum, EUR-Lex</text>
+
+  <line x1="640" y1="1244" x2="640" y2="1276" stroke="#4A4A4A" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ BAND 10: OBJECTIVES ============ -->
+  <rect x="90" y="1280" width="1100" height="86" rx="8" fill="#F4F4F1" stroke="#5A5A5A" stroke-width="1.5"/>
+  <text x="650" y="1305" text-anchor="middle" font-size="13.5" font-weight="600" fill="#222">Composite training objective   L = L_task  +  a . L_align  +  b . L_link</text>
+  <text x="240" y="1332" text-anchor="middle" font-size="11.5" fill="#444">L_task: cross-entropy or</text>
+  <text x="240" y="1349" text-anchor="middle" font-size="11.5" fill="#444">next-token loss per task</text>
+  <text x="650" y="1332" text-anchor="middle" font-size="11.5" fill="#444">L_align: InfoNCE contrastive alignment</text>
+  <text x="650" y="1349" text-anchor="middle" font-size="11.5" fill="#444">between graph tokens and text spans</text>
+  <text x="1050" y="1332" text-anchor="middle" font-size="11.5" fill="#444">L_link: auxiliary citation link</text>
+  <text x="1050" y="1349" text-anchor="middle" font-size="11.5" fill="#444">prediction on the graph encoder</text>
+
+  <path d="M 1210 1323 L 1250 1323 L 1250 700 L 1206 700" fill="none" stroke="#8A8A8A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <text x="1268" y="1010" font-size="11" fill="#7A7A7A" transform="rotate(-90 1268 1010)">gradient flow to trainable modules</text>
+</svg>

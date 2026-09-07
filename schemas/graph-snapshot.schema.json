@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legal graph snapshot envelope",
+  "type": "object",
+  "required": ["version", "schema_version", "nodes", "edges"],
+  "properties": {
+    "version": { "type": "string", "minLength": 1 },
+    "schema_version": { "type": "string", "minLength": 1 },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node_id", "node_type", "label", "source_document_ids"],
+        "properties": {
+          "node_id": { "type": "string", "minLength": 1 },
+          "node_type": { "type": "string" },
+          "label": { "type": "string" },
+          "source_document_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["edge_id", "relation_type", "source_id", "target_id", "evidence_extraction_ids", "origin_split"],
+        "properties": {
+          "edge_id": { "type": "string", "minLength": 1 },
+          "relation_type": { "type": "string" },
+          "source_id": { "type": "string", "minLength": 1 },
+          "target_id": { "type": "string", "minLength": 1 },
+          "evidence_extraction_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "origin_split": { "enum": ["train", "validation", "test", "external"] }
+        }
+      }
+    }
+  }
+}

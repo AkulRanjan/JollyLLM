@@ -1,0 +1,17 @@
+{
+  "registry_version": "1.0.0",
+  "sources": [
+    {
+      "source_id": "source:synthetic:legal-graph-fixture:v1",
+      "display_name": "Synthetic legal graph fixture",
+      "source_locator": "local://data/fixtures/synthetic-legal-graph",
+      "acquired_on": "2026-09-05",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license_label": "Synthetic test data - redistributable",
+      "status": "approved",
+      "permitted_uses": ["development", "testing", "release"],
+      "redistribution_allowed": true,
+      "notes": "Synthetic only. Replace with approved source records before real-data ingestion."
+    }
+  ]
+}

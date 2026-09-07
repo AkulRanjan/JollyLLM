@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legal-graph"
+version = "0.1.0"
+description = "Local-first graph-augmented legal document understanding research scaffold"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary - research workspace" }
+authors = [{ name = "LLM Graph project" }]
+dependencies = ["pypdf>=6.0"]
+
+[project.scripts]
+legal-graph = "legal_graph.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.unittest]
+start-directory = "tests"

@@ -1,0 +1,7 @@
+{
+  "strategy": "prize_guided_connected_expansion_v1",
+  "node_budget": 5,
+  "expansion_hops": 2,
+  "allowed_origin_splits": ["train", "validation"],
+  "require_connected": true
+}

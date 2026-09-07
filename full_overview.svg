@@ -1,0 +1,287 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1150" viewBox="0 0 1800 1150" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3F3F3F"/>
+    </marker>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8A8A8A"/>
+    </marker>
+  </defs>
+
+  <rect width="1800" height="1150" fill="#FBFAF7"/>
+
+  <text x="900" y="40" text-anchor="middle" font-size="27" font-weight="700" fill="#141414">Graph-Augmented Fine-Tuning of Open-Source LLMs for Legal Document Understanding</text>
+  <text x="900" y="66" text-anchor="middle" font-size="14" fill="#666">Single-view system overview: corpora, knowledge graph construction, structure encoding, parameter-efficient adaptation, tasks and evaluation</text>
+  <line x1="40" y1="84" x2="1760" y2="84" stroke="#D8D5CC" stroke-width="1.5"/>
+
+  <!-- ================= COLUMN HEADERS ================= -->
+  <rect x="40" y="104" width="300" height="34" rx="5" fill="#5B7C99"/>
+  <text x="190" y="127" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">1 &#183; LEGAL CORPORA</text>
+
+  <rect x="380" y="104" width="300" height="34" rx="5" fill="#4E7C5A"/>
+  <text x="530" y="127" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">2 &#183; GRAPH CONSTRUCTION</text>
+
+  <rect x="720" y="104" width="320" height="34" rx="5" fill="#6B5B9A"/>
+  <text x="880" y="127" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">3 &#183; STRUCTURE ENCODING</text>
+
+  <rect x="1080" y="104" width="320" height="34" rx="5" fill="#A9524F"/>
+  <text x="1240" y="127" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">4 &#183; ADAPTATION</text>
+
+  <rect x="1440" y="104" width="320" height="34" rx="5" fill="#5A5A5A"/>
+  <text x="1600" y="127" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">5 &#183; TASKS AND EVALUATION</text>
+
+  <!-- ================= COLUMN 1 : CORPORA ================= -->
+  <rect x="40" y="152" width="300" height="86" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.5"/>
+  <text x="56" y="174" font-size="13" font-weight="700" fill="#1B2C3A">Statutes and codified law</text>
+  <text x="56" y="196" font-size="11.5" fill="#44586A">US Code, CFR, EUR-Lex with CELEX ids</text>
+  <text x="56" y="214" font-size="11.5" fill="#44586A">IPC / BNS / CrPC / BNSS, Evidence Act</text>
+  <text x="56" y="231" font-size="10.5" fill="#7A8A98">containment hierarchy, amendment history</text>
+
+  <rect x="40" y="250" width="300" height="100" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.5"/>
+  <text x="56" y="272" font-size="13" font-weight="700" fill="#1B2C3A">Judgments and precedents</text>
+  <text x="56" y="294" font-size="11.5" fill="#44586A">Caselaw Access Project, 6.7M decisions</text>
+  <text x="56" y="312" font-size="11.5" fill="#44586A">ECtHR 11k, SCOTUS 7.8k, ILDC 35k</text>
+  <text x="56" y="330" font-size="11.5" fill="#44586A">Indian Kanoon crawl, licence checked</text>
+  <text x="56" y="345" font-size="10.5" fill="#7A8A98">primary source of citation edges</text>
+
+  <rect x="40" y="362" width="300" height="82" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.5"/>
+  <text x="56" y="384" font-size="13" font-weight="700" fill="#1B2C3A">Contracts and filings</text>
+  <text x="56" y="406" font-size="11.5" fill="#44586A">CUAD 510 contracts, 13k annotations</text>
+  <text x="56" y="424" font-size="11.5" fill="#44586A">LEDGAR 80k, ContractNLI 607, MAUD 152</text>
+  <text x="56" y="439" font-size="10.5" fill="#7A8A98">intra-document definition and cross-refs</text>
+
+  <rect x="40" y="456" width="300" height="66" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.5"/>
+  <text x="56" y="478" font-size="13" font-weight="700" fill="#1B2C3A">Domain-adaptive pretraining</text>
+  <text x="56" y="500" font-size="11.5" fill="#44586A">Pile of Law, 256 GB across 35 sources</text>
+  <text x="56" y="515" font-size="10.5" fill="#7A8A98">optional continued pretraining stage</text>
+
+  <rect x="40" y="534" width="300" height="130" rx="6" fill="#FFFFFF" stroke="#5B7C99" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="56" y="556" font-size="13" font-weight="700" fill="#1B2C3A">Task benchmarks</text>
+  <text x="56" y="578" font-size="11.5" fill="#44586A">LexGLUE (7 tasks), LegalBench (162)</text>
+  <text x="56" y="596" font-size="11.5" fill="#44586A">CaseHOLD 53k, EUR-Lex 65k / 23 langs</text>
+  <text x="56" y="614" font-size="11.5" fill="#44586A">BillSum 22k, COLIEE, AILA, IL-TUR</text>
+  <text x="56" y="632" font-size="11.5" fill="#44586A">HLDC 900k Hindi bail documents</text>
+  <text x="56" y="652" font-size="10.5" fill="#7A8A98">supervision for stage 4, splits for stage 5</text>
+
+  <!-- ================= COLUMN 2 : GRAPH CONSTRUCTION ================= -->
+  <rect x="380" y="152" width="300" height="152" rx="6" fill="#EAF3EC" stroke="#4E7C5A" stroke-width="1.5"/>
+  <text x="396" y="174" font-size="13" font-weight="700" fill="#22402C">Extraction pipeline (offline)</text>
+  <text x="396" y="198" font-size="11.5" fill="#3A5C46">&#8226; Citation and cross-reference parsing</text>
+  <text x="396" y="218" font-size="11.5" fill="#3A5C46">&#8226; Statute and provision linking</text>
+  <text x="396" y="238" font-size="11.5" fill="#3A5C46">&#8226; Rhetorical role segmentation</text>
+  <text x="396" y="258" font-size="11.5" fill="#3A5C46">&#8226; Entity linking and coreference</text>
+  <text x="396" y="280" font-size="10.5" fill="#6D8A78">regex per jurisdiction plus fine-tuned tagger</text>
+  <text x="396" y="295" font-size="10.5" fill="#6D8A78">precision measured on 500 manual references</text>
+
+  <line x1="530" y1="304" x2="530" y2="338" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="380" y="342" width="300" height="322" rx="6" fill="#FDF3E3" stroke="#B8862F" stroke-width="1.8"/>
+  <text x="530" y="368" text-anchor="middle" font-size="14.5" font-weight="700" fill="#5C4310">Legal heterogeneous KG</text>
+  <text x="530" y="388" text-anchor="middle" font-size="12.5" font-weight="600" fill="#7A6534">G = (V, E, R)</text>
+
+  <text x="396" y="414" font-size="11.5" font-weight="700" fill="#5C4310">Node types V</text>
+  <text x="396" y="432" font-size="11" fill="#4A3A16">case document, paragraph / rhetorical unit,</text>
+  <text x="396" y="449" font-size="11" fill="#4A3A16">statutory provision, contract clause, legal</text>
+  <text x="396" y="466" font-size="11" fill="#4A3A16">concept, court, party entity, date anchor</text>
+
+  <text x="396" y="492" font-size="11.5" font-weight="700" fill="#5C4310">Relation types R</text>
+  <text x="396" y="510" font-size="11" fill="#4A3A16">cites, is-cited-by, overrules, distinguishes,</text>
+  <text x="396" y="527" font-size="11" fill="#4A3A16">amends, defines, contains, refers-to-provision,</text>
+  <text x="396" y="544" font-size="11" fill="#4A3A16">co-occurs-with, temporally-precedes</text>
+  <text x="396" y="564" font-size="10.5" fill="#8A7440">node features initialised from LegalBERT / InLegalBERT</text>
+
+  <line x1="396" y1="578" x2="664" y2="578" stroke="#B8862F" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <line x1="424" y1="616" x2="472" y2="600" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="472" y1="600" x2="520" y2="632" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="520" y1="632" x2="572" y2="602" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="572" y1="602" x2="624" y2="630" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="472" y1="600" x2="572" y2="602" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="520" y1="632" x2="500" y2="652" stroke="#B8862F" stroke-width="1.4"/>
+  <line x1="572" y1="602" x2="600" y2="652" stroke="#B8862F" stroke-width="1.4"/>
+  <circle cx="424" cy="616" r="9" fill="#5B7C99"/>
+  <circle cx="472" cy="600" r="10" fill="#B8862F"/>
+  <circle cx="520" cy="632" r="9" fill="#4E7C5A"/>
+  <circle cx="572" cy="602" r="10" fill="#B8862F"/>
+  <circle cx="624" cy="630" r="9" fill="#5B7C99"/>
+  <circle cx="500" cy="652" r="7" fill="#4E7C5A"/>
+  <circle cx="600" cy="652" r="7" fill="#4E7C5A"/>
+  <text x="644" y="600" font-size="9.5" fill="#8A7440">case</text>
+  <text x="644" y="614" font-size="9.5" fill="#8A7440">para</text>
+  <text x="644" y="628" font-size="9.5" fill="#8A7440">prov</text>
+
+  <!-- ================= COLUMN 3 : STRUCTURE ENCODING ================= -->
+  <rect x="720" y="152" width="320" height="112" rx="6" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.5"/>
+  <text x="736" y="174" font-size="13" font-weight="700" fill="#2E2350">Query-conditioned subgraph retrieval</text>
+  <text x="736" y="196" font-size="11.5" fill="#4A3F6B">dense seed node matching on query embedding</text>
+  <text x="736" y="214" font-size="11.5" fill="#4A3F6B">k-hop expansion, k = 2</text>
+  <text x="736" y="232" font-size="11.5" fill="#4A3F6B">PCST pruning to a budget of N nodes</text>
+  <text x="736" y="252" font-size="10.5" fill="#7E739E">N tuned over 20 to 200, connected and bounded</text>
+
+  <line x1="880" y1="264" x2="880" y2="296" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="720" y="300" width="320" height="118" rx="6" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.5"/>
+  <text x="736" y="322" font-size="13" font-weight="700" fill="#2E2350">Heterogeneous graph encoder</text>
+  <text x="736" y="344" font-size="11.5" fill="#4A3F6B">R-GCN with relation-specific weights, or</text>
+  <text x="736" y="362" font-size="11.5" fill="#4A3F6B">HGT with type-aware attention</text>
+  <text x="736" y="380" font-size="11.5" fill="#4A3F6B">2 to 3 layers only, oversmoothing bound</text>
+  <text x="736" y="400" font-size="11.5" fill="#4A3F6B">output H in R^(N x d_g), pooled to K vectors</text>
+  <text x="736" y="413" font-size="10" fill="#7E739E">TRAINABLE</text>
+
+  <line x1="880" y1="418" x2="880" y2="450" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="720" y="454" width="320" height="92" rx="6" fill="#EDE9F6" stroke="#6B5B9A" stroke-width="1.5"/>
+  <text x="736" y="476" font-size="13" font-weight="700" fill="#2E2350">Cross-modal projector</text>
+  <text x="736" y="498" font-size="11.5" fill="#4A3F6B">2-layer MLP with GELU</text>
+  <text x="736" y="516" font-size="11.5" fill="#4A3F6B">maps d_g into d_model of the base LLM</text>
+  <text x="736" y="537" font-size="10" fill="#7E739E">TRAINABLE</text>
+
+  <line x1="880" y1="546" x2="880" y2="578" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="720" y="582" width="320" height="82" rx="6" fill="#FFFFFF" stroke="#6B5B9A" stroke-width="1.8"/>
+  <text x="880" y="608" text-anchor="middle" font-size="13.5" font-weight="700" fill="#2E2350">K graph soft tokens</text>
+  <text x="880" y="630" text-anchor="middle" font-size="11.5" fill="#4A3F6B">K between 1 and 10, same space as text embeddings</text>
+  <text x="880" y="650" text-anchor="middle" font-size="10.5" fill="#7E739E">structure enters the model without token cost blow-up</text>
+
+  <!-- ================= COLUMN 4 : ADAPTATION ================= -->
+  <rect x="1080" y="152" width="320" height="76" rx="6" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.4"/>
+  <text x="1096" y="174" font-size="13" font-weight="700" fill="#222">Input document and instruction</text>
+  <text x="1096" y="196" font-size="11.5" fill="#4F4F4F">long-context chunking, up to 32k tokens</text>
+  <text x="1096" y="216" font-size="10.5" fill="#7A7A7A">tokenised with the frozen base embedding layer</text>
+
+  <line x1="1240" y1="228" x2="1240" y2="256" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1080" y="260" width="320" height="78" rx="6" fill="#FFFFFF" stroke="#3F3F3F" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="1240" y="284" text-anchor="middle" font-size="12.5" font-weight="700" fill="#222">Prefix assembly</text>
+  <text x="1240" y="306" text-anchor="middle" font-size="11.5" fill="#444">[ K graph tokens ] || [ instruction ] ||</text>
+  <text x="1240" y="324" text-anchor="middle" font-size="11.5" fill="#444">[ document tokens ]</text>
+
+  <line x1="1240" y1="338" x2="1240" y2="366" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1080" y="370" width="320" height="120" rx="6" fill="#FBEAEA" stroke="#A9524F" stroke-width="1.8"/>
+  <text x="1240" y="394" text-anchor="middle" font-size="13.5" font-weight="700" fill="#5E2422">Open-source base LLM</text>
+  <text x="1240" y="414" text-anchor="middle" font-size="11.5" fill="#6E3532">4-bit quantised and frozen</text>
+  <text x="1240" y="437" text-anchor="middle" font-size="11.5" fill="#6E3532">Llama 3.1 8B Instruct  /  Qwen 2.5 7B</text>
+  <text x="1240" y="455" text-anchor="middle" font-size="11.5" fill="#6E3532">Mistral 7B v0.3  /  SaulLM 7B</text>
+  <text x="1240" y="477" text-anchor="middle" font-size="10.5" fill="#9A6B69">SaulLM also serves as the domain-adapted control</text>
+
+  <line x1="1240" y1="490" x2="1240" y2="518" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1080" y="522" width="320" height="86" rx="6" fill="#FBEAEA" stroke="#A9524F" stroke-width="1.5"/>
+  <text x="1096" y="544" font-size="13" font-weight="700" fill="#5E2422">LoRA / QLoRA adapters</text>
+  <text x="1096" y="566" font-size="11.5" fill="#6E3532">on q, k, v, o and MLP projections, r = 16 to 64</text>
+  <text x="1096" y="584" font-size="11.5" fill="#6E3532">LoRA + projector + GNN under 2% of parameters</text>
+  <text x="1096" y="600" font-size="10" fill="#9A6B69">TRAINABLE &#183; single A100 80GB or 2x RTX 4090</text>
+
+  <line x1="1240" y1="608" x2="1240" y2="636" stroke="#3F3F3F" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1080" y="640" width="320" height="96" rx="6" fill="#FFFFFF" stroke="#A9524F" stroke-width="1.5"/>
+  <text x="1240" y="664" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5E2422">L = L_task + a . L_align + b . L_link</text>
+  <text x="1096" y="686" font-size="11" fill="#6E3532">L_task &#183; cross-entropy or next-token per task</text>
+  <text x="1096" y="704" font-size="11" fill="#6E3532">L_align &#183; InfoNCE, graph tokens to text spans</text>
+  <text x="1096" y="722" font-size="11" fill="#6E3532">L_link &#183; auxiliary citation link prediction</text>
+
+  <!-- ================= COLUMN 5 : TASKS AND EVALUATION ================= -->
+  <rect x="1440" y="152" width="320" height="152" rx="6" fill="#EEF2F7" stroke="#5B7C99" stroke-width="1.5"/>
+  <text x="1456" y="174" font-size="13" font-weight="700" fill="#1B2C3A">Task families</text>
+  <text x="1456" y="198" font-size="11.5" fill="#44586A">Judgment and outcome prediction</text>
+  <text x="1456" y="213" font-size="10" fill="#7A8A98">ILDC, ECtHR A and B, CaseHOLD, SCOTUS</text>
+  <text x="1456" y="235" font-size="11.5" fill="#44586A">Statute and precedent retrieval</text>
+  <text x="1456" y="250" font-size="10" fill="#7A8A98">AILA, COLIEE, IL-TUR</text>
+  <text x="1456" y="272" font-size="11.5" fill="#44586A">Clause and obligation extraction</text>
+  <text x="1456" y="287" font-size="10" fill="#7A8A98">CUAD, LEDGAR, UNFAIR-ToS, MAUD, ContractNLI</text>
+  <text x="1456" y="300" font-size="11.5" fill="#44586A">Grounded summarisation with citations</text>
+
+  <rect x="1440" y="318" width="320" height="192" rx="6" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.5"/>
+  <text x="1456" y="340" font-size="13" font-weight="700" fill="#222">Baselines, matched parameter budget</text>
+  <text x="1456" y="362" font-size="11" fill="#4F4F4F">B1  zero-shot and few-shot base LLM</text>
+  <text x="1456" y="382" font-size="11" fill="#4F4F4F">B2  text-only LoRA fine-tuning</text>
+  <text x="1456" y="402" font-size="11" fill="#4F4F4F">B3  graph linearised as text in the prompt</text>
+  <text x="1456" y="422" font-size="11" fill="#4F4F4F">B4  dense-retrieval RAG, no graph</text>
+  <text x="1456" y="442" font-size="11" fill="#4F4F4F">B5  GraphRAG community retrieval, frozen LLM</text>
+  <text x="1456" y="462" font-size="11" fill="#4F4F4F">B6  LegalBERT / InLegalBERT classifier</text>
+  <text x="1456" y="482" font-size="11" fill="#4F4F4F">B7  SaulLM-7B with text-only LoRA</text>
+  <text x="1456" y="501" font-size="10.5" fill="#7A7A7A">ablations: no graph tokens, untyped edges, K, depth</text>
+
+  <rect x="1440" y="524" width="320" height="212" rx="6" fill="#F0F0EE" stroke="#5A5A5A" stroke-width="1.5"/>
+  <text x="1456" y="546" font-size="13" font-weight="700" fill="#222">Metrics</text>
+  <text x="1456" y="568" font-size="11" fill="#4F4F4F">macro-F1 primary, micro-F1 secondary</text>
+  <text x="1456" y="586" font-size="10" fill="#7A7A7A">legal label distributions are severely skewed</text>
+  <text x="1456" y="608" font-size="11" fill="#4F4F4F">nDCG@k, Recall@k, MRR for retrieval</text>
+  <text x="1456" y="628" font-size="11" fill="#4F4F4F">ROUGE-L and BERTScore for summarisation</text>
+  <text x="1456" y="650" font-size="11" font-weight="600" fill="#5E2422">citation validity: resolves to a real node</text>
+  <text x="1456" y="668" font-size="11" font-weight="600" fill="#5E2422">citation relevance: expert-adjudicated</text>
+  <text x="1456" y="683" font-size="10" fill="#7A7A7A">validity alone is gameable by frequent citations</text>
+  <text x="1456" y="705" font-size="11" fill="#4F4F4F">paired bootstrap, 3 seeds, mean and std</text>
+  <text x="1456" y="725" font-size="11" fill="#4F4F4F">cross-jurisdiction transfer at 0 / 100 / 1k / 10k</text>
+
+  <!-- ================= INTER-COLUMN ARROWS ================= -->
+  <line x1="342" y1="400" x2="376" y2="400" stroke="#3F3F3F" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="682" y1="400" x2="716" y2="400" stroke="#3F3F3F" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="1042" y1="400" x2="1076" y2="400" stroke="#3F3F3F" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="1402" y1="400" x2="1436" y2="400" stroke="#3F3F3F" stroke-width="2" marker-end="url(#a)"/>
+
+  <line x1="1042" y1="622" x2="1076" y2="622" stroke="#3F3F3F" stroke-width="2" marker-end="url(#a)"/>
+  <text x="1059" y="612" text-anchor="middle" font-size="9.5" fill="#7A7A7A"> </text>
+
+  <!-- supervision channel -->
+  <path d="M 190 664 L 190 786 L 1600 786 L 1600 742" fill="none" stroke="#8A8A8A" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ad)"/>
+  <path d="M 1240 786 L 1240 742" fill="none" stroke="#8A8A8A" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ad)"/>
+  <text x="700" y="778" font-size="11" fill="#7A7A7A">task supervision for training, held-out splits for evaluation</text>
+
+  <!-- ================= BOTTOM STRIP ================= -->
+  <rect x="40" y="810" width="1720" height="300" rx="8" fill="#F4F4F1" stroke="#C9C6BC" stroke-width="1.4"/>
+
+  <text x="60" y="838" font-size="12" font-weight="700" fill="#8A8A8A" letter-spacing="1">PRIMARY OBJECTIVE</text>
+  <text x="60" y="862" font-size="14" fill="#1E1E1E">Inject structural information from a legal knowledge graph into an open-source LLM as continuous soft tokens during parameter-efficient fine-tuning, and show</text>
+  <text x="60" y="884" font-size="14" fill="#1E1E1E">measurable improvement over text-only fine-tuning on legal document understanding, under an identical trainable-parameter budget.</text>
+
+  <text x="60" y="918" font-size="12" font-weight="700" fill="#8A8A8A" letter-spacing="1">RESEARCH GAP</text>
+  <text x="60" y="942" font-size="13" fill="#3A3A3A">Legal NLP already uses citation graphs, but consumes them with encoder-only classifiers. The graph-plus-LLM literature has the fusion techniques, but evaluates on generic benchmarks such as WebQSP and OGB.</text>
+  <text x="60" y="962" font-size="13" fill="#3A3A3A">Legal graphs add an authority hierarchy, temporal validity windows on provisions, and asymmetric overruling and distinguishing relations that no existing graph-plus-LLM benchmark exercises.</text>
+
+  <rect x="60" y="988" width="230" height="56" rx="5" fill="#FFFFFF" stroke="#5B7C99" stroke-width="1.3"/>
+  <text x="72" y="1008" font-size="11" font-weight="700" fill="#5B7C99">O1</text>
+  <text x="94" y="1008" font-size="11" fill="#333">Build the legal KG</text>
+  <text x="72" y="1027" font-size="10.5" fill="#666">two or more jurisdictions, with</text>
+  <text x="72" y="1040" font-size="10.5" fill="#666">measured extraction precision</text>
+
+  <rect x="310" y="988" width="230" height="56" rx="5" fill="#FFFFFF" stroke="#4E7C5A" stroke-width="1.3"/>
+  <text x="322" y="1008" font-size="11" font-weight="700" fill="#4E7C5A">O2</text>
+  <text x="344" y="1008" font-size="11" fill="#333">Subgraph retrieval</text>
+  <text x="322" y="1027" font-size="10.5" fill="#666">recall at a fixed node budget vs</text>
+  <text x="322" y="1040" font-size="10.5" fill="#666">dense passage and BM25</text>
+
+  <rect x="560" y="988" width="230" height="56" rx="5" fill="#FFFFFF" stroke="#6B5B9A" stroke-width="1.3"/>
+  <text x="572" y="1008" font-size="11" font-weight="700" fill="#6B5B9A">O3</text>
+  <text x="594" y="1008" font-size="11" fill="#333">Encoder and projector</text>
+  <text x="572" y="1027" font-size="10.5" fill="#666">alignment converges, graph</text>
+  <text x="572" y="1040" font-size="10.5" fill="#666">tokens carry non-trivial signal</text>
+
+  <rect x="810" y="988" width="230" height="56" rx="5" fill="#FFFFFF" stroke="#A9524F" stroke-width="1.3"/>
+  <text x="822" y="1008" font-size="11" font-weight="700" fill="#A9524F">O4</text>
+  <text x="844" y="1008" font-size="11" fill="#333">Graph-augmented PEFT</text>
+  <text x="822" y="1027" font-size="10.5" fill="#666">multi-task instruction mixture,</text>
+  <text x="822" y="1040" font-size="10.5" fill="#666">under 2% trainable parameters</text>
+
+  <rect x="1060" y="988" width="230" height="56" rx="5" fill="#FFFFFF" stroke="#5A5A5A" stroke-width="1.3"/>
+  <text x="1072" y="1008" font-size="11" font-weight="700" fill="#5A5A5A">O5</text>
+  <text x="1094" y="1008" font-size="11" fill="#333">Controlled benchmark</text>
+  <text x="1072" y="1027" font-size="10.5" fill="#666">seven baselines, four task</text>
+  <text x="1072" y="1040" font-size="10.5" fill="#666">families, significance tested</text>
+
+  <rect x="1310" y="988" width="215" height="56" rx="5" fill="#FFFFFF" stroke="#5A5A5A" stroke-width="1.3"/>
+  <text x="1322" y="1008" font-size="11" font-weight="700" fill="#5A5A5A">O6</text>
+  <text x="1344" y="1008" font-size="11" fill="#333">Cut hallucination</text>
+  <text x="1322" y="1027" font-size="10.5" fill="#666">validity and relevance of</text>
+  <text x="1322" y="1040" font-size="10.5" fill="#666">generated citations</text>
+
+  <rect x="1545" y="988" width="215" height="56" rx="5" fill="#FFFFFF" stroke="#5A5A5A" stroke-width="1.3"/>
+  <text x="1557" y="1008" font-size="11" font-weight="700" fill="#5A5A5A">O7</text>
+  <text x="1579" y="1008" font-size="11" fill="#333">Transfer</text>
+  <text x="1557" y="1027" font-size="10.5" fill="#666">US or EU source to Indian</text>
+  <text x="1557" y="1040" font-size="10.5" fill="#666">target, few-shot curves</text>
+
+  <text x="60" y="1078" font-size="11.5" fill="#7A7A7A">Method lineage: LegalBERT / InLegalBERT &#183; SaulLM-7B &#183; LegalBench &#183; LeSICiN heterogeneous statute graphs &#183; LoRA and QLoRA &#183; GraphToken soft-token encoding &#183; G-Retriever PCST subgraph selection &#183; GraphRAG &#183; R-GCN and HGT</text>
+  <text x="60" y="1098" font-size="11.5" fill="#7A7A7A">Scope note: outputs are document-understanding predictions evaluated retrospectively on benchmarks. The system is not intended to produce legal advice or to inform any decision affecting a real party.</text>
+</svg>
