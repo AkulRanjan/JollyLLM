@@ -18,6 +18,7 @@ data/reports/
 data/annotations/
 checkpoints/
 models/
+notebooks/kaggle_*.ipynb
 mlruns/
 wandb/
 
