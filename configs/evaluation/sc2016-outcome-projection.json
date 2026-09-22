@@ -1,0 +1,185 @@
+{
+  "schema_version": "1.0.0",
+  "method": "class_recall_uplift_projection_v1",
+  "projection_id": "sc2016-outcome-projection-v1",
+  "status_label": "projected_not_measured",
+  "evaluator_version": "sc2016-outcome-evaluator-1.0.0",
+  "corpus_path": "data/clean/judgments/sc-2016/judgments.jsonl",
+  "training_data_manifest": "data/clean/judgments/training.manifest.json",
+  "measured_validation_metrics": "data/reports/evaluation/sc2016-outcome-baseline-v1/validation-metrics.json",
+  "output_dir": "data/reports/evaluation/sc2016-outcome-projection-v1",
+  "primary_variant_id": "qwen7b-graph-typed-rgcn",
+  "measured_variant_id": "nb-train-only",
+  "confusability_prior": {
+    "allowed": {
+      "partly_allowed": 0.45,
+      "dismissed": 0.35,
+      "disposed": 0.2
+    },
+    "dismissed": {
+      "allowed": 0.4,
+      "disposed": 0.4,
+      "partly_allowed": 0.2
+    },
+    "disposed": {
+      "dismissed": 0.45,
+      "allowed": 0.4,
+      "partly_allowed": 0.15
+    },
+    "partly_allowed": {
+      "allowed": 0.55,
+      "dismissed": 0.25,
+      "disposed": 0.2
+    }
+  },
+  "variants": [
+    {
+      "variant_id": "majority-class-prior",
+      "label": "Majority-class prior",
+      "family": "trivial",
+      "evidence": "measured",
+      "graph_evidence": "none",
+      "note": "Always predicts the most frequent training label.",
+      "class_recall": {
+        "allowed": 1.0,
+        "dismissed": 0.0,
+        "disposed": 0.0,
+        "partly_allowed": 0.0
+      }
+    },
+    {
+      "variant_id": "nb-train-only",
+      "label": "Train-only multinomial NB",
+      "family": "classical",
+      "evidence": "measured",
+      "graph_evidence": "none",
+      "note": "Implemented baseline; validation numbers are read from the measured artifact, not projected.",
+      "class_recall": {
+        "allowed": 0.5263,
+        "dismissed": 0.5714,
+        "disposed": 0.3333,
+        "partly_allowed": 0.2
+      }
+    },
+    {
+      "variant_id": "qwen7b-zeroshot-prompt",
+      "label": "Qwen2.5-7B zero-shot prompt",
+      "family": "llm",
+      "evidence": "projected",
+      "graph_evidence": "none",
+      "note": "Frozen instruct model, disposition-masked prefix only, constrained label decoding.",
+      "class_recall": {
+        "allowed": 0.68,
+        "dismissed": 0.6,
+        "disposed": 0.36,
+        "partly_allowed": 0.14
+      }
+    },
+    {
+      "variant_id": "qwen7b-bm25-prompt",
+      "label": "+ BM25 statute evidence",
+      "family": "llm",
+      "evidence": "projected",
+      "graph_evidence": "flat_text",
+      "note": "Adds top-k provision passages from the approved BM25 index as flat prompt text.",
+      "class_recall": {
+        "allowed": 0.72,
+        "dismissed": 0.64,
+        "disposed": 0.42,
+        "partly_allowed": 0.18
+      }
+    },
+    {
+      "variant_id": "qwen7b-qlora-text",
+      "label": "+ QLoRA supervision (text only)",
+      "family": "llm",
+      "evidence": "projected",
+      "graph_evidence": "flat_text",
+      "note": "QLoRA adapters trained on the labelled train split; no graph channel.",
+      "class_recall": {
+        "allowed": 0.8,
+        "dismissed": 0.71,
+        "disposed": 0.5,
+        "partly_allowed": 0.26
+      }
+    },
+    {
+      "variant_id": "qwen7b-graph-untyped",
+      "label": "+ Untyped graph prefix (ablation)",
+      "family": "graph",
+      "evidence": "projected",
+      "graph_evidence": "untyped_prefix",
+      "note": "Same node set and parameter budget as the primary run with relation types masked out.",
+      "class_recall": {
+        "allowed": 0.83,
+        "dismissed": 0.73,
+        "disposed": 0.54,
+        "partly_allowed": 0.3
+      }
+    },
+    {
+      "variant_id": "qwen7b-graph-typed-rgcn",
+      "label": "+ Typed R-GCN prefix + PCST",
+      "family": "graph",
+      "evidence": "projected",
+      "graph_evidence": "typed_prefix",
+      "note": "Primary planned configuration: two-layer typed R-GCN over the PCST subgraph, soft-token prefix.",
+      "class_recall": {
+        "allowed": 0.86,
+        "dismissed": 0.78,
+        "disposed": 0.6,
+        "partly_allowed": 0.38
+      }
+    },
+    {
+      "variant_id": "saullm7b-graph-typed-rgcn",
+      "label": "SaulLM-7B, same graph stack",
+      "family": "graph",
+      "evidence": "projected",
+      "graph_evidence": "typed_prefix",
+      "note": "Controlled legal-domain base model on the frozen graph, index, and split.",
+      "class_recall": {
+        "allowed": 0.88,
+        "dismissed": 0.8,
+        "disposed": 0.63,
+        "partly_allowed": 0.4
+      }
+    },
+    {
+      "variant_id": "retrieval-oracle-ceiling",
+      "label": "Oracle-retrieval ceiling",
+      "family": "ceiling",
+      "evidence": "projected",
+      "graph_evidence": "oracle",
+      "note": "Diagnostic upper bound with gold citation subgraphs supplied; not an achievable run.",
+      "class_recall": {
+        "allowed": 0.92,
+        "dismissed": 0.86,
+        "disposed": 0.72,
+        "partly_allowed": 0.52
+      }
+    }
+  ],
+  "learning_curve": {
+    "ceiling": 0.87,
+    "exponent": 0.62,
+    "anchor_labelled_cases": 359,
+    "ceiling_note": "Data-scaling asymptote for the primary architecture at fixed retrieval quality. It is a different quantity from the retrieval-oracle-ceiling variant, which fixes the data and perfects the subgraph instead.",
+    "labelled_case_points": [
+      50,
+      100,
+      200,
+      359,
+      500,
+      750,
+      1000,
+      2000,
+      5000
+    ]
+  },
+  "simulation": {
+    "trials": 20000,
+    "seed": 20260910,
+    "comparison_baseline_variant_id": "qwen7b-qlora-text"
+  }
+}
