@@ -18,6 +18,17 @@ from .bm25 import (
     write_bm25_index,
 )
 from .fixtures import fixture_graph
+from .judgments import (
+    SC2016_SOURCE_ID,
+    build_judgment_graph,
+    ingest_sc2016_directory,
+    load_source_record,
+    write_extraction_report,
+    write_judgment_corpus,
+    write_training_manifest,
+)
+from .manifests import create_graph_manifest, graph_from_dict, sha256_payload, write_graph_and_manifest
+from .outcomes import load_config as load_outcome_config, run as run_outcome_baseline
 from .model_preflight import (
     load_model_registry,
     preflight_model_experiment,
@@ -25,8 +36,10 @@ from .model_preflight import (
 )
 from .models import RetrievalConfig, RetrievalRequest, Split
 from .prefix import assemble_prefix
+from .projection import load_config as load_projection_config, run as run_projection
 from .retrieval import retrieve_subgraph
 from .statutes import ingest_statute_pdf
+from .training import load_config as load_dapt_config, run as run_dapt
 from .validation import validate_graph
 
 
@@ -100,6 +113,89 @@ def main() -> None:
         "--experiment",
         default="qwen25-7b-graphprefix-qlora-v1",
         help="configured experiment ID",
+    )
+
+    judgment_parser = subcommands.add_parser(
+        "ingest-sc2016",
+        help="ingest the approved local Supreme Court 2016 judgment corpus",
+    )
+    judgment_parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=Path("data/raw/judgments/sc-2016"),
+        help="local SC-2016 corpus root containing extracted_jsons and extracted_mds",
+    )
+    judgment_parser.add_argument(
+        "--source-registry",
+        type=Path,
+        default=Path("configs/sources/sc2016-source.json"),
+        help="approved local provenance record for this source",
+    )
+    judgment_parser.add_argument("--source-id", default=SC2016_SOURCE_ID)
+    judgment_parser.add_argument(
+        "--base-graph",
+        type=Path,
+        default=Path("data/graphs/india_statutes/graph.json"),
+        help="validated local statute graph to extend",
+    )
+    judgment_parser.add_argument(
+        "--corpus-output",
+        type=Path,
+        default=Path("data/clean/judgments/sc-2016/judgments.jsonl"),
+        help="local judgment JSONL output",
+    )
+    judgment_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/graphs/judgments/sc-2016"),
+        help="local graph and manifest output directory",
+    )
+    judgment_parser.add_argument(
+        "--report-output",
+        type=Path,
+        default=Path("data/reports/judgments/sc-2016/extraction-report.json"),
+        help="local unresolved-reference report output",
+    )
+    judgment_parser.add_argument("--graph-version", default="india-statutes-sc2016-0.1.0")
+    judgment_parser.add_argument("--code-revision", default="local-uncommitted")
+    judgment_parser.add_argument(
+        "--training-manifest",
+        type=Path,
+        default=Path("data/clean/judgments/training.manifest.json"),
+        help="local split-safe training supervision manifest",
+    )
+
+    dapt_parser = subcommands.add_parser(
+        "train-dapt",
+        help="run the bounded local QLoRA text-only DAPT baseline",
+    )
+    dapt_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/training/qwen25-1.5b-sc2016-dapt-smoke.json"),
+        help="local QLoRA DAPT experiment configuration",
+    )
+
+    outcome_parser = subcommands.add_parser(
+        "predict-outcome-baseline",
+        help="create train-only held-out SC-2016 disposition predictions",
+    )
+    outcome_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/evaluation/sc2016-outcome-baseline.json"),
+        help="local pre-training outcome baseline configuration",
+    )
+
+    projection_parser = subcommands.add_parser(
+        "project-outcomes",
+        help="write the labelled-as-projected accuracy forecast for the planned variant ladder",
+    )
+    projection_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/evaluation/sc2016-outcome-projection.json"),
+        help="local outcome projection configuration",
     )
 
     arguments = parser.parse_args()
@@ -205,6 +301,86 @@ def main() -> None:
             workspace_root=Path.cwd(),
         )
         _print(result_to_dict(result))
+    elif arguments.command == "ingest-sc2016":
+        source = load_source_record(arguments.source_registry, arguments.source_id)
+        ingestion = ingest_sc2016_directory(
+            arguments.source_root,
+            source_id=source.source_id,
+            expected_source_sha256=source.raw_sha256,
+        )
+        base_payload = json.loads(arguments.base_graph.read_text(encoding="utf-8"))
+        base_graph = graph_from_dict(base_payload)
+        assembly = build_judgment_graph(
+            base_graph,
+            ingestion,
+            version=arguments.graph_version,
+        )
+        corpus_path, corpus_sha256, corpus_count = write_judgment_corpus(
+            ingestion,
+            arguments.corpus_output,
+        )
+        report_path, report_sha256 = write_extraction_report(assembly, arguments.report_output)
+        base_graph_sha256 = sha256_payload(base_payload)
+        manifest = create_graph_manifest(
+            assembly.graph,
+            code_revision=arguments.code_revision,
+            config_payload={
+                "ingester": "sc2016-json-markdown-v1",
+                "source_id": source.source_id,
+                "source_sha256": ingestion.source_sha256,
+                "base_graph_sha256": base_graph_sha256,
+                "split_strategy": "sha256-prefix-modulo-10-v1",
+            },
+            parents=(
+                source.source_id,
+                f"source:sha256:{ingestion.source_sha256}",
+                f"graph:sha256:{base_graph_sha256}",
+            ),
+            storage_uri=f"local://{arguments.output_dir.as_posix()}",
+            status="validated",
+        )
+        graph_path, manifest_path = write_graph_and_manifest(assembly.graph, manifest, arguments.output_dir)
+        training_manifest_path, training_manifest_sha256 = write_training_manifest(
+            ingestion,
+            arguments.training_manifest,
+            corpus_sha256=corpus_sha256,
+            graph_content_sha256=manifest.content_sha256,
+        )
+        decision_dates = sum(record.decision_date is not None for record in ingestion.judgments)
+        split_counts = {
+            split.value: sum(record.origin_split is split for record in ingestion.judgments)
+            for split in Split
+            if any(record.origin_split is split for record in ingestion.judgments)
+        }
+        _print(
+            {
+                "status": manifest.status,
+                "source_id": source.source_id,
+                "source_sha256": ingestion.source_sha256,
+                "judgment_count": corpus_count,
+                "decision_date_count": decision_dates,
+                "split_counts": split_counts,
+                "corpus_path": str(corpus_path),
+                "corpus_sha256": corpus_sha256,
+                "graph_path": str(graph_path),
+                "graph_manifest_path": str(manifest_path),
+                "graph_content_sha256": manifest.content_sha256,
+                "report_path": str(report_path),
+                "report_sha256": report_sha256,
+                "training_manifest_path": str(training_manifest_path),
+                "training_manifest_sha256": training_manifest_sha256,
+                "resolution_summary": assembly.resolution_counts,
+            }
+        )
+    elif arguments.command == "train-dapt":
+        result = run_dapt(load_dapt_config(arguments.config), Path.cwd())
+        _print(result)
+    elif arguments.command == "predict-outcome-baseline":
+        result = run_outcome_baseline(load_outcome_config(arguments.config), Path.cwd())
+        _print(result)
+    elif arguments.command == "project-outcomes":
+        result = run_projection(load_projection_config(arguments.config), Path.cwd())
+        _print(result)
     else:
         index = load_bm25_index(arguments.index)
         results = search_bm25(index, arguments.query, limit=arguments.limit)
