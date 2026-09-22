@@ -1,0 +1,17 @@
+{
+  "registry_version": "1.0.0",
+  "sources": [
+    {
+      "source_id": "source:huggingface:sc-judgments-2016:e928c72019d62098",
+      "display_name": "Indian Supreme Court Judgments 2016",
+      "source_locator": "https://huggingface.co/datasets/Shreyasrao/Indian-law-supreme-court-judgements-2016/tree/e928c72019d62098c8d8ffe2e1e06acdcbbb5fc6",
+      "acquired_on": "2026-09-09",
+      "raw_sha256": "2d7655d6f5126cd5bb33cd291cccd055e6b352fd7cbd2964e4c465a5b760c0d4",
+      "license_label": "CC-BY-4.0",
+      "status": "approved",
+      "permitted_uses": ["development", "evaluation", "local-model-training", "testing"],
+      "redistribution_allowed": false,
+      "notes": "Local-only project intake. Hash covers the paired JSON metadata and Markdown transcripts consumed by sc2016-json-markdown-v1."
+    }
+  ]
+}
