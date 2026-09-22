@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "local_files_only": true,
+  "experiment_id": "qwen25-1.5b-sc2016-dapt-smoke-v1",
+  "method": "qlora_dapt_text_only_v1",
+  "model_source": "Qwen/Qwen2.5-1.5B-Instruct",
+  "model_revision": "5fee7c4ed634dc66c6e318c8ac2897b8b9154536",
+  "local_model_path": "models/qwen2.5-1.5b-instruct",
+  "corpus_path": "data/clean/judgments/sc-2016/judgments.jsonl",
+  "training_data_manifest": "data/clean/judgments/training.manifest.json",
+  "output_dir": "checkpoints/qwen25-1.5b-sc2016-dapt-smoke-v1",
+  "max_seq_length": 256,
+  "per_device_batch_size": 1,
+  "max_steps": 20,
+  "checkpoint_every_steps": 5,
+  "learning_rate": 0.0002,
+  "seed": 20260909,
+  "max_train_documents": 64,
+  "max_validation_documents": 16,
+  "max_train_blocks": 256,
+  "max_validation_blocks": 32,
+  "min_cuda_memory_bytes": 5500000000,
+  "lora": {
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  }
+}
