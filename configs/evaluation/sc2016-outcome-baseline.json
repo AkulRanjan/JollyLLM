@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "experiment_id": "sc2016-outcome-baseline-v1",
+  "evaluator_version": "sc2016-outcome-evaluator-1.0.0",
+  "method": "train_only_multinomial_nb_v1",
+  "corpus_path": "data/clean/judgments/sc-2016/judgments.jsonl",
+  "training_data_manifest": "data/clean/judgments/training.manifest.json",
+  "output_dir": "data/reports/evaluation/sc2016-outcome-baseline-v1",
+  "input_view": {
+    "id": "prefix-with-disposition-masking-v1",
+    "character_limit": 6000,
+    "label_source": "latest explicit disposition phrase in final 20 percent",
+    "masking": "All explicit allowed, dismissed, disposed, and partly-allowed phrases are replaced before feature extraction."
+  },
+  "label_schema": ["allowed", "dismissed", "disposed", "partly_allowed"],
+  "vocabulary_size": 8000,
+  "alpha": 1.0,
+  "held_out_protocol": {
+    "test_labels_accessible_to_baseline": false,
+    "primary_metric": "macro_f1",
+    "comparison": "Freeze the trained candidate, then evaluate it once with the same input view and label schema."
+  }
+}
