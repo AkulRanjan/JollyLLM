@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .builder import build_reference_edges
-from .extraction import ResolutionResult, extract_indian_references, resolution_summary, resolve_candidates
+from .extraction import EXTRACTORS, ResolutionResult, resolution_summary, resolve_candidates
 from .manifests import SourceRecord, sha256_payload, validate_source_records
 from .models import EdgeRecord, GraphSnapshot, NodeRecord, NodeType, RelationType, Split
 from .validation import validate_graph
@@ -195,6 +195,7 @@ def build_judgment_graph(
     ingestion: JudgmentIngestion,
     *,
     version: str = "india-statutes-sc2016-0.1.0",
+    extractor: str = "v1",
 ) -> JudgmentGraphAssembly:
     """Extend a validated statute graph with cases, court edges, and resolved provisions."""
 
@@ -242,7 +243,7 @@ def build_judgment_graph(
             )
         )
         resolutions = resolve_candidates(
-            extract_indian_references(record.text, record.document_id),
+            EXTRACTORS[extractor](record.text, record.document_id),
             known_target_ids,
         )
         for key, value in resolution_summary(resolutions).items():

@@ -157,6 +157,8 @@ def main() -> None:
         help="local unresolved-reference report output",
     )
     judgment_parser.add_argument("--graph-version", default="india-statutes-sc2016-0.1.0")
+    judgment_parser.add_argument("--extractor", choices=("v1", "v2"), default="v1",
+                                 help="citation extractor; v2 builds graph version 0.2 and later")
     judgment_parser.add_argument("--code-revision", default="local-uncommitted")
     judgment_parser.add_argument(
         "--training-manifest",
@@ -327,6 +329,7 @@ def main() -> None:
             base_graph,
             ingestion,
             version=arguments.graph_version,
+            extractor=arguments.extractor,
         )
         corpus_path, corpus_sha256, corpus_count = write_judgment_corpus(
             ingestion,
@@ -343,6 +346,7 @@ def main() -> None:
                 "source_sha256": ingestion.source_sha256,
                 "base_graph_sha256": base_graph_sha256,
                 "split_strategy": "sha256-prefix-modulo-10-v1",
+                **({"extractor": "indian_regex_v2"} if arguments.extractor == "v2" else {}),
             },
             parents=(
                 source.source_id,

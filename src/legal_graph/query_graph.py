@@ -11,7 +11,7 @@ import random
 from dataclasses import dataclass
 from datetime import date
 
-from .extraction import extract_indian_references, resolve_candidates
+from .extraction import EXTRACTORS, resolve_candidates
 from .models import GraphSnapshot, RelationType, RetrievalConfig, RetrievalRequest, Split
 from .retrieval import _edge_is_eligible, _node_is_eligible, retrieve_subgraph
 
@@ -30,9 +30,9 @@ class QuerySubgraph:
     status: str
 
 
-def view_seed_node_ids(view_text: str, document_id: str, graph: GraphSnapshot) -> tuple[str, ...]:
+def view_seed_node_ids(view_text: str, document_id: str, graph: GraphSnapshot, extractor: str = "v1") -> tuple[str, ...]:
     """Graph nodes cited in the visible text, in order of first mention."""
-    candidates = extract_indian_references(view_text, document_id)
+    candidates = EXTRACTORS[extractor](view_text, document_id)
     results = resolve_candidates(candidates, (node.node_id for node in graph.nodes))
     seen: list[str] = []
     for result in results:
@@ -52,6 +52,7 @@ def build_query_subgraph(
     config: RetrievalConfig,
     selector: str = "expansion",
     random_seed: int | None = None,
+    extractor: str = "v1",
 ) -> QuerySubgraph:
     if selector not in SELECTORS:
         raise ValueError(f"unknown selector {selector!r}")
@@ -59,7 +60,7 @@ def build_query_subgraph(
     nodes = view.nodes_by_id
     seeds = tuple(
         seed
-        for seed in view_seed_node_ids(view_text, document_id, view)
+        for seed in view_seed_node_ids(view_text, document_id, view, extractor)
         if seed in nodes and _node_is_eligible(nodes[seed], as_of_date)
     )
     if not seeds:

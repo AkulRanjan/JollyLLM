@@ -65,6 +65,7 @@ class OutcomeTrainConfig:
     node_budget: int
     expansion_hops: int
     node_feature_tokens: int
+    extractor: str = "v1"
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -113,7 +114,10 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         node_budget=int(graph["node_budget"]),
         expansion_hops=int(graph["expansion_hops"]),
         node_feature_tokens=int(graph["node_feature_tokens"]),
+        extractor=str(data.get("extractor", "v1")),
     )
+    if config.extractor not in ("v1", "v2"):
+        raise ValueError(f"unknown extractor {config.extractor!r}")
     if min(config.epochs, config.gradient_accumulation, config.max_train_examples, config.max_prompt_tokens,
            config.input_character_limit, config.num_graph_tokens, config.node_budget, config.lora_rank) <= 0:
         raise ValueError("count configuration values must be positive")
@@ -227,6 +231,7 @@ class SubgraphBuilder:
                 config=self.retrieval,
                 selector=self.config.selector,
                 random_seed=self.config.seed,
+                extractor=self.config.extractor,
             )
         return self._cache[example.case_id]
 

@@ -33,12 +33,19 @@ _EMBEDDED_MATERIAL = re.compile(
 _PAGE_MARKER = re.compile(r"\n?<<PAGE:\d+>>\n?")
 
 
+_SECTION_START_TWO_LETTER = re.compile(
+    r"(?m)^\s*(?P<section>[1-9]\d{0,2}[A-Z]{0,2})\.(?=\s|\(|[A-Za-z\"“\[])"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class StatuteSpec:
     act_id: str
     title: str
     enactment_date: date
     filename_markers: tuple[str, ...]
+    body_marker: re.Pattern[str] = _BODY_MARKER
+    section_start: re.Pattern[str] = _SECTION_START
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +87,28 @@ KNOWN_STATUTES: tuple[StatuteSpec, ...] = (
         enactment_date=date(1974, 1, 25),
         filename_markers=("code_of_criminal_procedure", "crpc"),
     ),
+    StatuteSpec(
+        act_id="ipc",
+        title="Indian Penal Code, 1860",
+        enactment_date=date(1860, 10, 6),
+        filename_markers=("indian_penal_code", "penal_code", "a1860-45", "ipc"),
+        body_marker=re.compile(r"it\s+is\s+(?:hereby\s+)?enacted", re.IGNORECASE),
+    ),
+    StatuteSpec(
+        act_id="iea",
+        title="Indian Evidence Act, 1872",
+        enactment_date=date(1872, 9, 1),
+        filename_markers=("evidence_act", "evidence-act", "iea", "a1872-01"),
+        body_marker=re.compile(r"it\s+is\s+(?:hereby\s+)?enacted", re.IGNORECASE),
+    ),
+    StatuteSpec(
+        act_id="constitution",
+        title="Constitution of India",
+        enactment_date=date(1950, 1, 26),
+        filename_markers=("constitution", "coi"),
+        body_marker=re.compile(r"WE,?\s+THE\s+PEOPLE\s+OF\s+INDIA"),
+        section_start=_SECTION_START_TWO_LETTER,
+    ),
 )
 
 
@@ -108,12 +137,12 @@ def ingest_statute_pdf(path: Path, spec: StatuteSpec | None = None) -> StatuteIn
     statute = spec or infer_statute_spec(path)
     reader = PdfReader(str(path))
     pages = tuple(reader_page.extract_text() or "" for reader_page in reader.pages)
-    body_start_index = _find_body_start(pages)
+    body_start_index = _find_body_start(pages, statute.body_marker)
     body_pages = tuple(
-        (page_index + 1, _crop_first_body_page(text, page_index == body_start_index))
+        (page_index + 1, _crop_first_body_page(text, page_index == body_start_index, statute.body_marker))
         for page_index, text in enumerate(pages[body_start_index:], start=body_start_index)
     )
-    provisions, duplicates = extract_provisions_from_pages(body_pages)
+    provisions, duplicates = extract_provisions_from_pages(body_pages, statute.section_start)
     if not provisions:
         raise ValueError(f"no numbered provisions found in {path.name!r}")
     source_hash = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -132,10 +161,11 @@ def ingest_statute_pdf(path: Path, spec: StatuteSpec | None = None) -> StatuteIn
 
 def extract_provisions_from_pages(
     pages: Sequence[tuple[int, str]],
+    section_start: re.Pattern[str] = _SECTION_START,
 ) -> tuple[tuple[Provision, ...], tuple[str, ...]]:
     """Split act-body page text into de-duplicated, page-provenanced provisions."""
 
-    candidates = extract_provision_candidates_from_pages(pages)
+    candidates = extract_provision_candidates_from_pages(pages, section_start)
     selected: list[Provision] = []
     excluded_sections: list[str] = []
     highest_key: tuple[int, str] | None = None
@@ -153,7 +183,10 @@ def extract_provisions_from_pages(
     return tuple(selected), tuple(sorted(set(excluded_sections), key=_section_sort_key))
 
 
-def extract_provision_candidates_from_pages(pages: Sequence[tuple[int, str]]) -> tuple[Provision, ...]:
+def extract_provision_candidates_from_pages(
+    pages: Sequence[tuple[int, str]],
+    section_start: re.Pattern[str] = _SECTION_START,
+) -> tuple[Provision, ...]:
     """Return every numbered heading, including duplicate section identifiers.
 
     This preserves the evidence needed by the quality-audit step. Consumers that
@@ -171,7 +204,7 @@ def extract_provision_candidates_from_pages(pages: Sequence[tuple[int, str]]) ->
         combined_parts.append(f"\n<<PAGE:{page_number}>>\n")
         cursor += len(combined_parts[-1])
     body_text = "".join(combined_parts)
-    matches = tuple(_SECTION_START.finditer(body_text))
+    matches = tuple(section_start.finditer(body_text))
     candidates: list[Provision] = []
 
     for index, match in enumerate(matches):
@@ -307,17 +340,17 @@ def build_statute_graph(
     return graph
 
 
-def _find_body_start(pages: Sequence[str]) -> int:
+def _find_body_start(pages: Sequence[str], marker: re.Pattern[str] = _BODY_MARKER) -> int:
     for index, text in enumerate(pages):
-        if _BODY_MARKER.search(text):
+        if marker.search(text):
             return index
-    raise ValueError("could not find the act body marker 'BE it enacted'")
+    raise ValueError(f"could not find the act body marker {marker.pattern!r}")
 
 
-def _crop_first_body_page(text: str, is_first_body_page: bool) -> str:
+def _crop_first_body_page(text: str, is_first_body_page: bool, body_marker: re.Pattern[str] = _BODY_MARKER) -> str:
     if not is_first_body_page:
         return text
-    marker = _BODY_MARKER.search(text)
+    marker = body_marker.search(text)
     return text[marker.start():] if marker else text
 
 
@@ -328,7 +361,7 @@ def _page_for_offset(offset: int, page_offsets: Sequence[tuple[int, int]]) -> in
 
 
 def _section_sort_key(section: str) -> tuple[int, str]:
-    match = re.fullmatch(r"(?P<number>\d+)(?P<suffix>[A-Z]?)", section)
+    match = re.fullmatch(r"(?P<number>\d+)(?P<suffix>[A-Z]{0,2})", section)
     if not match:
         return (10**9, section)
     return (int(match.group("number")), match.group("suffix"))
