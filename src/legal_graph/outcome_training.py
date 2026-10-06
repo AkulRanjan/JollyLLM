@@ -28,7 +28,12 @@ from .query_graph import NUM_RELATION_TYPES, SELECTORS, QuerySubgraph, build_que
 from .training import _parameter_report, _pin_base_model, _sha256_file
 
 METHOD = "graph_outcome_qlora_v1"
-VARIANTS = ("text", "graph_untyped", "graph_typed", "graph_random")
+VARIANTS = ("text", "graph_untyped", "graph_typed", "graph_random", "zero_shot", "bm25_prompt")
+FROZEN_VARIANTS = ("zero_shot", "bm25_prompt")  # no adapter, no training: the base model is scored as is
+
+
+def is_graph_variant(variant: str) -> bool:
+    return variant.startswith("graph_")
 PARAMETER_CAP = 0.02
 
 
@@ -66,6 +71,8 @@ class OutcomeTrainConfig:
     expansion_hops: int
     node_feature_tokens: int
     extractor: str = "v1"
+    bm25_top_k: int = 0
+    max_evidence_tokens: int = 0
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -115,9 +122,14 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         expansion_hops=int(graph["expansion_hops"]),
         node_feature_tokens=int(graph["node_feature_tokens"]),
         extractor=str(data.get("extractor", "v1")),
+        bm25_top_k=int(data.get("evidence", {}).get("top_k", 0)),
+        max_evidence_tokens=int(data.get("evidence", {}).get("max_tokens", 0)),
     )
     if config.extractor not in ("v1", "v2"):
         raise ValueError(f"unknown extractor {config.extractor!r}")
+    uses_evidence = config.bm25_top_k > 0 or config.max_evidence_tokens > 0
+    if (variant == "bm25_prompt") != uses_evidence or (variant == "bm25_prompt" and min(config.bm25_top_k, config.max_evidence_tokens) <= 0):
+        raise ValueError("evidence.top_k and evidence.max_tokens are required by, and only by, bm25_prompt")
     if min(config.epochs, config.gradient_accumulation, config.max_train_examples, config.max_prompt_tokens,
            config.input_character_limit, config.num_graph_tokens, config.node_budget, config.lora_rank) <= 0:
         raise ValueError("count configuration values must be positive")
@@ -128,7 +140,7 @@ def config_to_dict(config: OutcomeTrainConfig) -> dict[str, Any]:
     """Inverse of config_from_dict, so a run directory can be reloaded for evaluation."""
     flat = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(config).items()}
     moved = {"lora_rank", "lora_alpha", "lora_dropout", "lora_target_modules", "num_graph_tokens", "graph_hidden_dim",
-             "graph_layers", "node_budget", "expansion_hops", "node_feature_tokens"}
+             "graph_layers", "node_budget", "expansion_hops", "node_feature_tokens", "bm25_top_k", "max_evidence_tokens"}
     nested: dict[str, Any] = {"schema_version": "1.0.0", "method": METHOD}
     nested.update({key: value for key, value in flat.items() if key not in moved})
     nested["lora"] = {"rank": config.lora_rank, "alpha": config.lora_alpha, "dropout": config.lora_dropout,
@@ -136,13 +148,16 @@ def config_to_dict(config: OutcomeTrainConfig) -> dict[str, Any]:
     nested["graph"] = {"num_tokens": config.num_graph_tokens, "hidden_dim": config.graph_hidden_dim,
                        "layers": config.graph_layers, "node_budget": config.node_budget,
                        "expansion_hops": config.expansion_hops, "node_feature_tokens": config.node_feature_tokens}
+    if config.variant == "bm25_prompt":
+        nested["evidence"] = {"top_k": config.bm25_top_k, "max_tokens": config.max_evidence_tokens}
     return nested
 
 
 class OutcomeModel:
     """The (PEFT) causal LM, the optional graph encoder, and the node feature table."""
 
-    def __init__(self, lm, tokenizer, encoder, max_prompt_tokens: int, device, features: Mapping | None = None) -> None:
+    def __init__(self, lm, tokenizer, encoder, max_prompt_tokens: int, device, features: Mapping | None = None,
+                 evidence=None, max_evidence_tokens: int = 0) -> None:
         import torch
 
         self.torch = torch
@@ -154,6 +169,8 @@ class OutcomeModel:
         self.features = dict(features or {})
         self.label_ids = label_token_ids(tokenizer)
         self.eos = tokenizer.eos_token_id
+        self.evidence = evidence
+        self.max_evidence_tokens = max_evidence_tokens
 
     def _embed(self, ids: list[int]):
         embedding = self.lm.get_input_embeddings()
@@ -172,7 +189,9 @@ class OutcomeModel:
         return self.encoder(x.to(weight.dtype), index, types, query.to(weight.dtype)).unsqueeze(0)
 
     def _prompt(self, example: OutcomeExample, sub: QuerySubgraph | None, *, ablate: bool = False):
-        prompt = prompt_token_ids(self.tokenizer, example.view_text, self.max_prompt_tokens)
+        evidence = self.evidence(example) if self.evidence is not None else ""
+        prompt = prompt_token_ids(self.tokenizer, example.view_text, self.max_prompt_tokens,
+                                  evidence=evidence, max_evidence_tokens=self.max_evidence_tokens)
         embeds = self._embed(prompt)
         prefix = self.prefix_for(sub, embeds[0].detach().float().mean(dim=0), ablate=ablate)
         if prefix is not None:
@@ -218,7 +237,7 @@ class SubgraphBuilder:
         self._cache: dict[str, QuerySubgraph] = {}
 
     def __call__(self, example: OutcomeExample) -> QuerySubgraph | None:
-        if self.config.variant == "text":
+        if not is_graph_variant(self.config.variant):
             return None
         if example.case_id not in self._cache:
             self._cache[example.case_id] = build_query_subgraph(
@@ -226,7 +245,7 @@ class SubgraphBuilder:
                 query_id=example.case_id,
                 document_id=example.document_id,
                 view_text=example.view_text,
-                as_of_date=example.decision_date,
+                as_of_date=example.as_of,
                 exclude_node_ids=frozenset({example.case_id}),
                 config=self.retrieval,
                 selector=self.config.selector,
@@ -248,7 +267,7 @@ class SubgraphBuilder:
 
 
 def build_encoder(config: OutcomeTrainConfig, model_dim: int, output_rms: float):
-    if config.variant == "text":
+    if not is_graph_variant(config.variant):
         return None
     from .graph_encoder import GraphPrefixEncoder
 
@@ -265,12 +284,20 @@ def build_encoder(config: OutcomeTrainConfig, model_dim: int, output_rms: float)
 
 
 def node_features(config: OutcomeTrainConfig, root: Path, graph: GraphSnapshot, tokenizer, lm, device) -> dict:
-    if config.variant == "text":
+    if not is_graph_variant(config.variant):
         return {}
     from .graph_encoder import embed_node_texts
 
     texts = node_feature_texts(graph, root / config.provisions_path)
     return embed_node_texts(texts, tokenizer, lm.get_input_embeddings(), config.node_feature_tokens, device)
+
+
+def build_evidence(config: OutcomeTrainConfig, root: Path):
+    if config.variant != "bm25_prompt":
+        return None
+    from .outcome_evidence import Bm25Evidence
+
+    return Bm25Evidence(root / config.provisions_path, config.bm25_top_k)
 
 
 def score_examples(wrapper: OutcomeModel, examples, subgraphs: SubgraphBuilder, *, ablate_graph: bool = False) -> list[dict]:
@@ -306,6 +333,8 @@ def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=Non
         lm, tokenizer = load_base_model(config, root, device)
     else:
         lm = model.to(device)
+    if config.variant in FROZEN_VARIANTS:
+        return _score_frozen(config, root, output, lm, tokenizer, device, validation, corpus, manifest)
     lm = attach_lora(lm, config)
     graph = graph_from_dict(json.loads((root / config.graph_path).read_text(encoding="utf-8")))
     features = node_features(config, root, graph, tokenizer, lm, device)
@@ -393,6 +422,54 @@ def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=Non
         "validation_metrics": {"accuracy": best["metrics"]["accuracy"], "macro_f1": best["metrics"]["macro_f1"]},
         "subgraph_coverage": coverage,
         "parameter_report": {**report, "encoder_parameters": encoder_parameters, "trainable_fraction_with_encoder": fraction},
+        "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
+        "torch_version": torch.__version__,
+        "test_labels_accessed": False,
+    }
+    _write_json(output / "run.manifest.json", payload)
+    return payload
+
+
+def _score_frozen(config, root, output, lm, tokenizer, device, validation, corpus, manifest) -> dict[str, Any]:
+    """Zero-shot and BM25-prompt rungs: no adapter and no training, the base model is scored as is."""
+    import torch
+
+    lm.eval()
+    for parameter in lm.parameters():
+        parameter.requires_grad_(False)
+    evidence = build_evidence(config, root)
+    wrapper = OutcomeModel(lm, tokenizer, None, config.max_prompt_tokens, device, None, evidence, config.max_evidence_tokens)
+    graph = graph_from_dict(json.loads((root / config.graph_path).read_text(encoding="utf-8")))
+    started = time.time()
+    output.mkdir(parents=True, exist_ok=True)
+    _write_json(output / "config.json", config_to_dict(config))
+    predictions = score_examples(wrapper, validation, SubgraphBuilder(graph, config))
+    metrics = evaluate([row["gold"] for row in predictions], [row["predicted"] for row in predictions])
+    _write_jsonl(output / "validation-predictions.jsonl", predictions)
+    _write_json(output / "validation-metrics.json", metrics)
+    payload = {
+        "schema_version": "1.0.0",
+        "status": "trained_not_frozen",
+        "experiment_id": config.experiment_id,
+        "method": METHOD,
+        "variant": config.variant,
+        "selector": config.selector,
+        "frozen_base_model": True,
+        "base_model_source": config.model_source,
+        "base_model_revision": config.model_revision,
+        "config_sha256": _sha256_file(output / "config.json"),
+        "corpus_sha256": _sha256_file(corpus),
+        "training_manifest_sha256": _sha256_file(manifest),
+        "graph_sha256": _sha256_file(root / config.graph_path),
+        "evidence_corpus_sha256": evidence.corpus_sha256 if evidence is not None else None,
+        "train_examples": 0,
+        "validation_examples": len(validation),
+        "best_epoch": 0,
+        "history": [{"epoch": 0, "validation_accuracy": metrics["accuracy"], "validation_macro_f1": metrics["macro_f1"],
+                     "elapsed_seconds": time.time() - started}],
+        "validation_metrics": {"accuracy": metrics["accuracy"], "macro_f1": metrics["macro_f1"]},
+        "subgraph_coverage": {"train": None, "validation": None},
+        "parameter_report": {**_parameter_report(lm), "encoder_parameters": 0, "trainable_fraction_with_encoder": 0.0},
         "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
         "torch_version": torch.__version__,
         "test_labels_accessed": False,

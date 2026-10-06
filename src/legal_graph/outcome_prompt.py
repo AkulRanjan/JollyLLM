@@ -15,15 +15,28 @@ ANSWER_PREFIX = "\n\nOutcome:"
 VERBALIZERS = {label: " " + label.replace("_", " ") for label in LABELS}
 
 
-def prompt_token_ids(tokenizer, view_text: str, max_prompt_tokens: int) -> list[int]:
-    """Instruction + judgment view truncated to fit + answer prefix, which is never truncated."""
+def prompt_token_ids(
+    tokenizer,
+    view_text: str,
+    max_prompt_tokens: int,
+    *,
+    evidence: str = "",
+    max_evidence_tokens: int = 0,
+) -> list[int]:
+    """[evidence] + instruction + judgment view truncated to fit + answer prefix (never truncated).
+
+    Without evidence the token sequence is exactly the original text-only prompt. Evidence is
+    capped at max_evidence_tokens and takes its room from the judgment view, so every variant
+    stays inside the same max_prompt_tokens budget.
+    """
     head = tokenizer(INSTRUCTION, add_special_tokens=False)["input_ids"]
     tail = tokenizer(ANSWER_PREFIX, add_special_tokens=False)["input_ids"]
     body = tokenizer(view_text, add_special_tokens=False)["input_ids"]
-    room = max_prompt_tokens - len(head) - len(tail)
+    prefix = list(tokenizer(evidence, add_special_tokens=False)["input_ids"])[:max_evidence_tokens] if evidence else []
+    room = max_prompt_tokens - len(prefix) - len(head) - len(tail)
     if room <= 0:
         raise ValueError("max_prompt_tokens leaves no room for the judgment view")
-    return list(head) + list(body[:room]) + list(tail)
+    return prefix + list(head) + list(body[:room]) + list(tail)
 
 
 def label_token_ids(tokenizer) -> dict[str, tuple[int, ...]]:

@@ -74,3 +74,27 @@ class ExampleTests(unittest.TestCase):
             texts = node_feature_texts(_graph(), provisions)
         self.assertEqual(texts["case:train"], "A v B")
         self.assertEqual(texts["provision:india:crpc:482:sha256-x"], "CrPC section 482. Saving of inherent powers.")
+
+
+class AsOfDateTests(unittest.TestCase):
+    def test_decision_date_wins(self) -> None:
+        from datetime import date
+        from legal_graph.outcome_examples import OutcomeExample
+
+        self.assertEqual(OutcomeExample("c", "d", "train", "v", "allowed", date(2016, 5, 1), 2016).as_of, date(2016, 5, 1))
+
+    def test_undated_case_falls_back_to_first_day_of_its_year(self) -> None:
+        from datetime import date
+        from legal_graph.outcome_examples import OutcomeExample
+
+        self.assertEqual(OutcomeExample("c", "d", "train", "v", "allowed", None, 2016).as_of, date(2016, 1, 1))
+        self.assertIsNone(OutcomeExample("c", "d", "train", "v", "allowed", None).as_of)
+
+    def test_loader_reads_the_year_attribute(self) -> None:
+        with TemporaryDirectory() as directory:
+            corpus, manifest = _write(Path(directory), ({
+                "case_id": "c9", "document_id": "d9", "origin_split": "train", "decision_date": None,
+                "attributes": {"year": "2016"}, "text": BODY + "The appeal is dismissed."},))
+            train = {e.case_id: e for e in load_outcome_examples(corpus, manifest, "train", 6000)}
+        self.assertEqual(str(train["c9"].as_of), "2016-01-01")
+        self.assertIsNone(train["c1"].year)

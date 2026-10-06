@@ -22,6 +22,17 @@ class OutcomeExample:
     view_text: str
     label: str | None
     decision_date: date | None
+    year: int | None = None
+
+    @property
+    def as_of(self) -> date | None:
+        """Retrieval cut-off: the decision date, or 1 January of the judgment year when the date is unknown.
+
+        The fallback is deliberately conservative: it admits nothing enacted or decided later in that year.
+        """
+        if self.decision_date is not None:
+            return self.decision_date
+        return date(self.year, 1, 1) if self.year else None
 
 
 def load_outcome_examples(
@@ -57,6 +68,7 @@ def load_outcome_examples(
             if label is None and not hide:
                 continue
             raw_date = row.get("decision_date")
+            raw_year = str((row.get("attributes") or {}).get("year", "")).strip()
             examples.append(
                 OutcomeExample(
                     case_id=str(row["case_id"]),
@@ -65,6 +77,7 @@ def load_outcome_examples(
                     view_text=build_input_view(text, character_limit),
                     label=None if hide else label,
                     decision_date=date.fromisoformat(raw_date) if raw_date else None,
+                    year=int(raw_year) if raw_year.isdigit() else None,
                 )
             )
     return tuple(examples)
