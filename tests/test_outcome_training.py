@@ -100,7 +100,7 @@ class TinyTrainingTests(unittest.TestCase):
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            config = load_outcome_config(write_workspace(root, "text"))
+            config = load_outcome_config(write_workspace(root, "graph_typed"))  # encoder pushes the tiny model past 2%
             with self.assertRaises(RuntimeError):
                 train_outcome(config, root, model=tiny_model(), tokenizer=CharTokenizer())
 
