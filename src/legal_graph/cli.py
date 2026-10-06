@@ -212,6 +212,8 @@ def main() -> None:
     compare_parser.add_argument("--run-b", type=Path, required=True)
     compare_parser.add_argument("--metric", default="macro_f1", choices=("macro_f1", "accuracy"))
     compare_parser.add_argument("--resamples", type=int, default=10000)
+    collect_parser = subcommands.add_parser("collect-outcomes", help="aggregate measured runs against controls and the forecast")
+    collect_parser.add_argument("--config", type=Path, default=Path("configs/evaluation/sc2016-measured-vs-projected.json"))
 
     arguments = parser.parse_args()
 
@@ -410,6 +412,10 @@ def main() -> None:
         from .outcome_eval import evaluate_frozen
 
         _print(evaluate_frozen(arguments.run, Path.cwd(), ablate_graph=arguments.ablate_graph))
+    elif arguments.command == "collect-outcomes":
+        from .results import write_report
+
+        _print(write_report(Path.cwd(), arguments.config))
     elif arguments.command == "compare-outcomes":
         _print(_compare_runs(arguments.run_a, arguments.run_b, arguments.metric, arguments.resamples))
     else:

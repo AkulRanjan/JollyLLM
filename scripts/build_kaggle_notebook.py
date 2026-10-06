@@ -531,9 +531,12 @@ if ON_KAGGLE:
         remove_tree(checkpoint_root)
         (OUT / checkpoint_root.name).mkdir(parents=True, exist_ok=True)
         checkpoint_root.symlink_to(OUT / checkpoint_root.name, target_is_directory=True)
-candidates = sorted(Path("/kaggle/input").glob(f"*/{train_config['output_dir']}")) if ON_KAGGLE else []
-if not candidates:
-    raise FileNotFoundError(f"attach the training kernel as an input: no */{train_config['output_dir']} under /kaggle/input")
+run_name = Path(train_config["output_dir"]).name
+candidates = sorted(
+    path for path in Path("/kaggle/input").rglob(run_name) if path.is_dir() and (path / "freeze.json").exists()
+) if ON_KAGGLE else []
+if len(candidates) != 1:
+    raise FileNotFoundError(f"expected exactly one frozen {run_name} under /kaggle/input, found {[str(p) for p in candidates]}")
 remove_tree(output_dir)
 shutil.copytree(candidates[0], output_dir)
 if not (output_dir / "freeze.json").exists():
@@ -617,6 +620,35 @@ print(timings)
 """
 
 
+CPU_UNITTEST = """
+# Unit suite on a CPU session (no GPU quota): torch, transformers and peft from the Kaggle image.
+import base64, hashlib, importlib.util, io, os, subprocess, sys, tarfile, tempfile
+from pathlib import Path
+
+payload = base64.b64decode("".join(BUNDLE_B64.split()))
+assert hashlib.sha256(payload).hexdigest() == BUNDLE_SHA256, "bundle corrupted"
+work = Path(tempfile.gettempdir()) / "llm-graph-unittest"
+work.mkdir(parents=True, exist_ok=True)
+with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+    archive.extractall(work)
+if importlib.util.find_spec("torchao") is not None:  # see the GPU notebooks: outdated torchao breaks peft LoRA
+    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
+env = dict(os.environ, PYTHONPATH=str(work / "src"), CUDA_VISIBLE_DEVICES="")
+result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], cwd=work, env=env,
+                        capture_output=True, text=True)
+print(result.stderr[-20000:])
+Path("/kaggle/working/unittest-result.txt").write_text(result.stderr, encoding="utf-8")
+if result.returncode != 0:
+    raise SystemExit("unit suite failed")
+"""
+
+
+def cpu_unittest_notebook() -> dict[str, object]:
+    paths = bundle_paths() + sorted((ROOT / "tests").glob("*.py")) + sorted((ROOT / "scripts").glob("*.py"))
+    bundle = build_bundle(paths)
+    return _notebook([code(_bundle_cell(paths, bundle), hidden=True), code(CPU_UNITTEST)])
+
+
 def selftest_notebook() -> dict[str, object]:
     paths = bundle_paths() + [ROOT / "data/clean/india_statutes/provisions.jsonl"]
     paths += sorted((ROOT / "tests").glob("*.py")) + sorted((ROOT / "scripts").glob("*.py"))
@@ -696,7 +728,21 @@ def main() -> None:
     parser.add_argument("--phase", choices=("train", "evaluate"), default="train")
     parser.add_argument("--out", type=Path, help="kernel folder (default kaggle/<slug>)")
     parser.add_argument("--owner", default="akxran")
+    parser.add_argument("--unittest-cpu", action="store_true", help="write the CPU-only unit-suite kernel")
     arguments = parser.parse_args()
+    if arguments.unittest_cpu:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from kaggle_run import kernel_metadata
+
+        slug = "lg-unittest-cpu"
+        out_dir = arguments.out or ROOT / "kaggle" / slug
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{slug}.ipynb").write_text(json.dumps(cpu_unittest_notebook(), indent=1, ensure_ascii=False) + "\n",
+                                               encoding="utf-8", newline="\n")
+        metadata = kernel_metadata(f"{arguments.owner}/{slug}", slug, f"{slug}.ipynb", gpu=False, internet=True)
+        (out_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"kernel_folder": str(out_dir)}, indent=2))
+        return
     if arguments.selftest:
         sys.path.insert(0, str(ROOT / "scripts"))
         from kaggle_run import kernel_metadata
