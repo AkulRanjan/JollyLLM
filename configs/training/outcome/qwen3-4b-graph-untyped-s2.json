@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "method": "graph_outcome_qlora_v1",
+  "experiment_id": "qwen3-4b-graph-untyped-s2-v1",
+  "variant": "graph_untyped",
+  "selector": "expansion",
+  "model_source": "Qwen/Qwen3-4B",
+  "model_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+  "local_model_path": "models/qwen3-4b",
+  "corpus_path": "data/clean/judgments/sc-2016/judgments.jsonl",
+  "training_data_manifest": "data/clean/judgments/training.manifest.json",
+  "graph_path": "data/graphs/judgments/sc-2016/graph.json",
+  "provisions_path": "data/clean/india_statutes/provisions.jsonl",
+  "output_dir": "checkpoints/outcome/qwen3-4b-graph-untyped-s2-v1",
+  "input_character_limit": 6000,
+  "max_prompt_tokens": 1536,
+  "epochs": 3,
+  "learning_rate": 0.0001,
+  "encoder_learning_rate": 0.0005,
+  "gradient_accumulation": 8,
+  "seed": 20261007,
+  "quantize_4bit": true,
+  "min_cuda_memory_bytes": 14000000000,
+  "max_train_examples": 359,
+  "lora": {
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "graph": {
+    "num_tokens": 8,
+    "hidden_dim": 256,
+    "layers": 2,
+    "node_budget": 32,
+    "expansion_hops": 2,
+    "node_feature_tokens": 48
+  }
+}

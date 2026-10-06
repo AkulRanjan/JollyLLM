@@ -198,6 +198,19 @@ def main() -> None:
         help="local outcome projection configuration",
     )
 
+    train_outcome_parser = subcommands.add_parser("train-outcome", help="train a text or graph-augmented outcome model")
+    train_outcome_parser.add_argument("--config", type=Path, required=True)
+    freeze_parser = subcommands.add_parser("freeze-outcome", help="freeze a trained outcome run before test evaluation")
+    freeze_parser.add_argument("--run", type=Path, required=True)
+    evaluate_parser = subcommands.add_parser("evaluate-outcome", help="evaluate a frozen run once on the test split")
+    evaluate_parser.add_argument("--run", type=Path, required=True)
+    evaluate_parser.add_argument("--ablate-graph", action="store_true")
+    compare_parser = subcommands.add_parser("compare-outcomes", help="paired bootstrap between two evaluated runs")
+    compare_parser.add_argument("--run-a", type=Path, required=True)
+    compare_parser.add_argument("--run-b", type=Path, required=True)
+    compare_parser.add_argument("--metric", default="macro_f1", choices=("macro_f1", "accuracy"))
+    compare_parser.add_argument("--resamples", type=int, default=10000)
+
     arguments = parser.parse_args()
 
     if arguments.command == "validate-fixture":
@@ -381,6 +394,20 @@ def main() -> None:
     elif arguments.command == "project-outcomes":
         result = run_projection(load_projection_config(arguments.config), Path.cwd())
         _print(result)
+    elif arguments.command == "train-outcome":
+        from .outcome_training import load_outcome_config as load_model_config, train_outcome
+
+        _print(train_outcome(load_model_config(arguments.config), Path.cwd()))
+    elif arguments.command == "freeze-outcome":
+        from .outcome_eval import freeze_run
+
+        _print(freeze_run(arguments.run))
+    elif arguments.command == "evaluate-outcome":
+        from .outcome_eval import evaluate_frozen
+
+        _print(evaluate_frozen(arguments.run, Path.cwd(), ablate_graph=arguments.ablate_graph))
+    elif arguments.command == "compare-outcomes":
+        _print(_compare_runs(arguments.run_a, arguments.run_b, arguments.metric, arguments.resamples))
     else:
         index = load_bm25_index(arguments.index)
         results = search_bm25(index, arguments.query, limit=arguments.limit)
@@ -400,6 +427,29 @@ def main() -> None:
                 ],
             }
         )
+
+
+def _compare_runs(run_a: Path, run_b: Path, metric: str, resamples: int) -> dict[str, object]:
+    from .comparison import paired_bootstrap
+
+    def rows(run: Path) -> dict[str, dict]:
+        lines = (run / "test-predictions.jsonl").read_text(encoding="utf-8").splitlines()
+        return {row["case_id"]: row for row in map(json.loads, lines) if row}
+
+    first, second = rows(run_a), rows(run_b)
+    if sorted(first) != sorted(second):
+        raise SystemExit("runs were evaluated on different case sets")
+    ids = sorted(first)
+    if any(first[case]["gold"] != second[case]["gold"] for case in ids):
+        raise SystemExit("runs disagree on gold labels")
+    result = paired_bootstrap(
+        [first[case]["gold"] for case in ids],
+        [first[case]["predicted"] for case in ids],
+        [second[case]["predicted"] for case in ids],
+        metric=metric,
+        resamples=resamples,
+    )
+    return {"run_a": str(run_a), "run_b": str(run_b), **result}
 
 
 def _print(payload: dict[str, object]) -> None:
