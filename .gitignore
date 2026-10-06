@@ -5,6 +5,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.venv-ml/
+kaggle/
 venv/
 
 # Local experiment state and large immutable artifacts

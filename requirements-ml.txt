@@ -1,0 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0
+transformers>=4.51,<5
+peft>=0.15
+accelerate>=1.6
+bitsandbytes>=0.45
+huggingface_hub>=0.30
+pypdf>=6.0
