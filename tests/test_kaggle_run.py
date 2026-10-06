@@ -62,3 +62,19 @@ class OutcomeNotebookTests(unittest.TestCase):
         self.assertIn("configs/training/outcome/qwen3-4b-graph-typed-s1.json", source)
         self.assertEqual(eval_meta["kernel_sources"], ["akxran/lg-qwen3-4b-graph-typed-s1-train"])
         self.assertTrue(train_meta["is_private"] and eval_meta["is_private"])
+
+
+@unittest.skipUnless((ROOT / "data/clean/judgments/training.manifest.json").exists()
+                     and (ROOT / "data/clean/india_statutes-v2/provisions.jsonl").exists(), "local pipeline outputs absent")
+class SizeAndDatasetTests(unittest.TestCase):
+    def test_graph_kernels_fit_kaggle_limit_and_attach_the_statute_dataset(self) -> None:
+        builder = _load("build_kaggle_notebook")
+        with TemporaryDirectory() as directory:
+            folder = builder.write_outcome_kernel("qwen3-8b-graph-typed-pcst-g2", "train", Path(directory) / "k", "akxran")
+            meta = json.loads((folder / "kernel-metadata.json").read_text(encoding="utf-8"))
+            notebook = folder / meta["code_file"]
+            self.assertLess(notebook.stat().st_size, 1_000_000)
+            source = notebook.read_text(encoding="utf-8")
+        self.assertEqual(meta["dataset_sources"], ["akxran/lg-statute-data"])
+        self.assertIn("data/clean/india_statutes-v2/provisions.jsonl", source)
+        self.assertIn("does not match the hash", source)

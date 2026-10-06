@@ -36,6 +36,7 @@ def kernel_metadata(
     gpu: bool = True,
     internet: bool = True,
     kernel_sources: list[str] | None = None,
+    dataset_sources: list[str] | None = None,
 ) -> dict:
     return {
         "id": ref,
@@ -48,7 +49,7 @@ def kernel_metadata(
         "enable_tpu": False,
         "enable_internet": internet,
         "machine_shape": "NvidiaTeslaT4" if gpu else "None",
-        "dataset_sources": [],
+        "dataset_sources": list(dataset_sources or []),
         "kernel_sources": list(kernel_sources or []),
         "competition_sources": [],
         "model_sources": [],

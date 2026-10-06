@@ -585,6 +585,42 @@ print("saved under", OUT)
 """
 
 
+KAGGLE_SOURCE_LIMIT = 1_000_000
+STATUTE_DATASET = "akxran/lg-statute-data"
+STATUTE_DATA_FILES = (
+    "data/graphs/india_statutes/graph.json",
+    "data/graphs/india_statutes/graph.manifest.json",
+    "data/clean/india_statutes/provisions.jsonl",
+    "data/graphs/india_statutes-v2/graph.json",
+    "data/graphs/india_statutes-v2/graph.manifest.json",
+    "data/clean/india_statutes-v2/provisions.jsonl",
+)
+
+STATUTE_DATA = """
+# 3b. Statute layers and provision text from the private Kaggle dataset, each checked against the SHA-256
+# recorded when this notebook was built. Kaggle limits notebook source to 1 MB, so they are not embedded.
+import hashlib
+
+for relative, expected in STATUTE_FILES.items():
+    flat = relative.replace("/", "__")
+    found = sorted(Path("/kaggle/input").rglob(flat)) if ON_KAGGLE else []
+    if not found:
+        raise FileNotFoundError(f"{flat} not found: attach the dataset {STATUTE_DATASET} (Add Input -> Your Datasets)")
+    payload = found[0].read_bytes()
+    if hashlib.sha256(payload).hexdigest() != expected:
+        raise RuntimeError(f"{flat} does not match the hash this notebook was built with")
+    target = WORK / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+print(f"{len(STATUTE_FILES)} statute files verified from {STATUTE_DATASET}")
+"""
+
+
+def statute_data_cell() -> str:
+    hashes = {relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() for relative in STATUTE_DATA_FILES}
+    return f"STATUTE_DATASET = {STATUTE_DATASET!r}\nSTATUTE_FILES = {json.dumps(hashes, indent=4)}\n" + STATUTE_DATA
+
+
 def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
     config = f"configs/training/outcome/{stem}.json"
     if not (ROOT / config).is_file():
@@ -593,8 +629,9 @@ def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
     if graph_path not in GRAPH_BUILDS:
         raise SystemExit(f"no Kaggle graph build is defined for {graph_path}")
     build = GRAPH_BUILDS[graph_path]
-    base = bundle_paths()
-    paths = base + [ROOT / relative for relative in (*build["statute_files"], build["provisions"]) if ROOT / relative not in base]
+    # Code and configs only: statute data comes from the private dataset (Kaggle's 1 MB source limit).
+    statute = {ROOT / relative for relative in STATUTE_DATA_FILES}
+    paths = [path for path in bundle_paths() if path not in statute]
     bundle = build_bundle(paths)
     settings = SETTINGS.replace('RUN = "qwen3-8b"', f'RUN = "{stem}"').replace(
         'CONFIG = CONFIGS[RUN]', f'CONFIGS[RUN] = "{config}"\nCONFIG = CONFIGS[RUN]')
@@ -604,6 +641,7 @@ def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
         code(_bundle_cell(paths, bundle, build), hidden=True),
         code(ENVIRONMENT),
         code(UNPACK),
+        code(statute_data_cell()),
         code(DATA),
         code(MODEL),
         code(INGEST),
@@ -734,8 +772,12 @@ def write_outcome_kernel(stem: str, phase: str, out_dir: Path, owner: str, train
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / notebook_name).write_text(json.dumps(outcome_notebook(stem, phase), indent=1, ensure_ascii=False) + "\n",
                                          encoding="utf-8", newline="\n")
+    size = (out_dir / notebook_name).stat().st_size
+    if size >= KAGGLE_SOURCE_LIMIT:
+        raise SystemExit(f"{notebook_name} is {size:,} bytes; Kaggle rejects kernel sources of 1 MB or more")
     sources = [f"{owner}/{train_slug or kernel_slug(stem, 'train')}"] if phase == "evaluate" else []
-    metadata = kernel_metadata(f"{owner}/{slug}", slug, notebook_name, kernel_sources=sources)
+    metadata = kernel_metadata(f"{owner}/{slug}", slug, notebook_name, kernel_sources=sources,
+                               dataset_sources=[STATUTE_DATASET])
     (out_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     return out_dir
 

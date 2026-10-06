@@ -30,3 +30,4 @@ wandb/
 !.env.example
 .vscode/
 .idea/
+kaggle-datasets/
