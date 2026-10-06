@@ -513,12 +513,33 @@ if ON_KAGGLE:
         checkpoint_root.symlink_to(OUT / checkpoint_root.name, target_is_directory=True)
 if output_dir.is_dir() and any(output_dir.iterdir()):
     raise FileExistsError(f"{output_dir} already has results")
+
+# Resume: if an earlier session of this run is attached as an input (Add Input -> Your Work) and stopped before
+# finishing, continue from its latest-checkpoint instead of starting over. A finished run is never retrained.
+run_name = Path(train_config["output_dir"]).name
+previous = sorted(
+    path for path in Path("/kaggle/input").rglob(run_name)
+    if path.is_dir() and (path / "latest-checkpoint" / "state.json").exists()
+) if ON_KAGGLE else []
+finished = [path for path in previous if (path / "run.manifest.json").exists()]
+if finished:
+    raise FileExistsError(f"{run_name} already finished in an attached input: {finished[0]}")
+resume_args = []
+if previous:
+    if len(previous) > 1:
+        raise RuntimeError(f"more than one resumable copy of {run_name} is attached: {[str(p) for p in previous]}")
+    shutil.copytree(previous[0], output_dir)
+    resume_args = ["--resume"]
+    state = json.loads((output_dir / "latest-checkpoint" / "state.json").read_text(encoding="utf-8"))
+    print(f"resuming from {previous[0]} at epoch {state['epoch']} step {state['step']}")
+
 lineage = OUT / "lineage" / train_config["experiment_id"]
 lineage.mkdir(parents=True, exist_ok=True)
 for relative in (TRAINING_MANIFEST_PATH, str(Path(train_config["graph_path"]).parent / "graph.manifest.json")):
     shutil.copy2(WORK / relative, lineage / Path(relative).name)
 shutil.copy2(WORK / config_path, lineage / "outcome-config.json")
-run("-m", "legal_graph.cli", "train-outcome", "--config", config_path)
+print("checkpoint every", train_config.get("checkpoint_every_examples", 0), "examples (0 = epoch-best only)")
+run("-m", "legal_graph.cli", "train-outcome", "--config", config_path, *resume_args)
 run("-m", "legal_graph.cli", "freeze-outcome", "--run", str(output_dir))
 """
 

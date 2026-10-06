@@ -73,6 +73,7 @@ class OutcomeTrainConfig:
     extractor: str = "v1"
     bm25_top_k: int = 0
     max_evidence_tokens: int = 0
+    checkpoint_every_examples: int = 0
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -124,7 +125,10 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         extractor=str(data.get("extractor", "v1")),
         bm25_top_k=int(data.get("evidence", {}).get("top_k", 0)),
         max_evidence_tokens=int(data.get("evidence", {}).get("max_tokens", 0)),
+        checkpoint_every_examples=int(data.get("checkpoint_every_examples", 0)),
     )
+    if config.checkpoint_every_examples < 0 or config.checkpoint_every_examples % config.gradient_accumulation:
+        raise ValueError("checkpoint_every_examples must be a non-negative multiple of gradient_accumulation")
     if config.extractor not in ("v1", "v2"):
         raise ValueError(f"unknown extractor {config.extractor!r}")
     uses_evidence = config.bm25_top_k > 0 or config.max_evidence_tokens > 0
@@ -308,13 +312,19 @@ def score_examples(wrapper: OutcomeModel, examples, subgraphs: SubgraphBuilder, 
     return rows
 
 
-def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=None, tokenizer=None) -> dict[str, Any]:
+CHECKPOINT_DIR = "latest-checkpoint"
+
+
+def train_outcome(
+    config: OutcomeTrainConfig, workspace_root: Path, *, model=None, tokenizer=None, resume: bool = False,
+) -> dict[str, Any]:
     import torch
 
     root = Path(workspace_root)
     output = root / config.output_dir
-    if output.exists() and any(output.iterdir()):
-        raise FileExistsError(f"refusing to overwrite {output}")
+    resume_state = _resume_state(output, config) if resume else None
+    if resume_state is None and output.exists() and any(output.iterdir()):
+        raise FileExistsError(f"refusing to overwrite {output} (pass resume=True to continue an interrupted run)")
     corpus, manifest = root / config.corpus_path, root / config.training_data_manifest
     train = load_outcome_examples(corpus, manifest, "train", config.input_character_limit)
     validation = load_outcome_examples(corpus, manifest, "validation", config.input_character_limit)
@@ -362,22 +372,51 @@ def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=Non
     best: dict[str, Any] | None = None
     history: list[dict[str, Any]] = []
     started = time.time()
-    output.mkdir(parents=True, exist_ok=True)
-    _write_json(output / "config.json", config_to_dict(config))
-    for epoch in range(1, config.epochs + 1):
+    first_epoch, skip, running_carry, resumed_order = 1, 0, 0.0, None
+    checkpoints_written = 0
+    if resume_state is not None:
+        state = resume_state["state"]
+        _restore(resume_state["path"], lm, encoder, optimiser, device)
+        order_rng.setstate(_tuple_state(state["order_rng"]))
+        history, best = state["history"], state["best"]
+        checkpoints_written = state["checkpoints_written"]
+        by_id = {example.case_id: example for example in train}
+        if state["step"] >= len(train):  # the saved point is an epoch boundary
+            first_epoch = state["epoch"] + 1
+        else:
+            first_epoch, skip, running_carry = state["epoch"], state["step"], state["running"]
+            resumed_order = [by_id[case_id] for case_id in state["order"]]
+        print(f"resuming {config.experiment_id} at epoch {first_epoch} step {skip}", flush=True)
+    else:
+        output.mkdir(parents=True, exist_ok=True)
+        _write_json(output / "config.json", config_to_dict(config))
+    for epoch in range(first_epoch, config.epochs + 1):
         lm.train()
         if encoder is not None:
             encoder.train()
-        order = list(train)
-        order_rng.shuffle(order)
-        running = 0.0
+        if resumed_order is not None and epoch == first_epoch:
+            order, running = resumed_order, running_carry
+        else:
+            order = list(train)
+            order_rng.shuffle(order)
+            running, skip = 0.0, 0
         for step, example in enumerate(order, start=1):
+            if step <= skip:
+                continue
             loss = wrapper.loss(example, subgraphs(example))
             (loss / config.gradient_accumulation).backward()
             running += float(loss.detach())
             if step % config.gradient_accumulation == 0 or step == len(order):
                 optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
+                every = config.checkpoint_every_examples
+                if every and step % every == 0 and step < len(order):
+                    checkpoints_written += 1
+                    _write_training_checkpoint(output, lm, encoder, optimiser, {
+                        "epoch": epoch, "step": step, "running": running, "order": [e.case_id for e in order],
+                        "order_rng": order_rng.getstate(), "history": history, "best": best,
+                        "checkpoints_written": checkpoints_written,
+                    })
             if step % 25 == 0:
                 print(f"epoch {epoch} step {step}/{len(order)} loss {running / step:.4f} "
                       f"elapsed {time.time() - started:.0f}s", flush=True)
@@ -397,6 +436,13 @@ def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=Non
         if best is None or metrics["macro_f1"] > best["metrics"]["macro_f1"]:
             best = {"epoch": epoch, "metrics": metrics, "predictions": predictions}
             _save_checkpoint(output, lm, tokenizer, encoder)
+        if config.checkpoint_every_examples and epoch < config.epochs:
+            checkpoints_written += 1
+            _write_training_checkpoint(output, lm, encoder, optimiser, {
+                "epoch": epoch, "step": len(order), "running": running, "order": [e.case_id for e in order],
+                "order_rng": order_rng.getstate(), "history": history, "best": best,
+                "checkpoints_written": checkpoints_written,
+            })
 
     assert best is not None
     _write_jsonl(output / "validation-predictions.jsonl", best["predictions"])
@@ -425,9 +471,77 @@ def train_outcome(config: OutcomeTrainConfig, workspace_root: Path, *, model=Non
         "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
         "torch_version": torch.__version__,
         "test_labels_accessed": False,
+        "resumed": resume_state is not None,
+        "training_checkpoints_written": checkpoints_written,
     }
     _write_json(output / "run.manifest.json", payload)
+    _remove_tree(output / CHECKPOINT_DIR)  # the finished run keeps only its best-validation adapter
     return payload
+
+
+def _write_training_checkpoint(output: Path, lm, encoder, optimiser, state: dict[str, Any]) -> None:
+    """Atomically replace output/latest-checkpoint with LoRA, encoder, optimiser, RNG and loop state."""
+    import torch
+    from peft import get_peft_model_state_dict
+
+    staging = output / f"{CHECKPOINT_DIR}.tmp"
+    _remove_tree(staging)
+    staging.mkdir(parents=True)
+    torch.save(get_peft_model_state_dict(lm), staging / "lora.pt")
+    if encoder is not None:
+        torch.save(encoder.state_dict(), staging / "encoder.pt")
+    torch.save(optimiser.state_dict(), staging / "optimizer.pt")
+    rng = {"torch": torch.get_rng_state()}
+    if torch.cuda.is_available():
+        rng["cuda"] = torch.cuda.get_rng_state_all()
+    torch.save(rng, staging / "rng.pt")
+    _write_json(staging / "state.json", state)
+    previous = output / f"{CHECKPOINT_DIR}.old"
+    _remove_tree(previous)
+    current = output / CHECKPOINT_DIR
+    if current.exists():
+        current.rename(previous)
+    staging.rename(current)
+    _remove_tree(previous)
+    print(f"checkpoint: epoch {state['epoch']} step {state['step']} -> {current}", flush=True)
+
+
+def _resume_state(output: Path, config: OutcomeTrainConfig) -> dict[str, Any] | None:
+    checkpoint = output / CHECKPOINT_DIR
+    if not (checkpoint / "state.json").exists():
+        return None
+    if (output / "run.manifest.json").exists():
+        raise FileExistsError(f"{output} already finished; nothing to resume")
+    saved = json.loads((output / "config.json").read_text(encoding="utf-8"))
+    if saved != json.loads(json.dumps(config_to_dict(config))):
+        raise ValueError("refusing to resume: the run directory was trained with a different config")
+    return {"path": checkpoint, "state": json.loads((checkpoint / "state.json").read_text(encoding="utf-8"))}
+
+
+def _restore(checkpoint: Path, lm, encoder, optimiser, device) -> None:
+    import torch
+    from peft import set_peft_model_state_dict
+
+    set_peft_model_state_dict(lm, torch.load(checkpoint / "lora.pt", map_location=device))
+    if encoder is not None:
+        encoder.load_state_dict(torch.load(checkpoint / "encoder.pt", map_location=device))
+    optimiser.load_state_dict(torch.load(checkpoint / "optimizer.pt", map_location=device))
+    rng = torch.load(checkpoint / "rng.pt", weights_only=False)
+    torch.set_rng_state(rng["torch"])
+    if "cuda" in rng and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(rng["cuda"])
+
+
+def _tuple_state(value):
+    """JSON turns random.getstate() tuples into lists; turn them back."""
+    return tuple(_tuple_state(item) for item in value) if isinstance(value, list) else value
+
+
+def _remove_tree(path: Path) -> None:
+    import shutil
+
+    if path.exists():
+        shutil.rmtree(path)
 
 
 def _score_frozen(config, root, output, lm, tokenizer, device, validation, corpus, manifest) -> dict[str, Any]:

@@ -202,6 +202,7 @@ def main() -> None:
 
     train_outcome_parser = subcommands.add_parser("train-outcome", help="train a text or graph-augmented outcome model")
     train_outcome_parser.add_argument("--config", type=Path, required=True)
+    train_outcome_parser.add_argument("--resume", action="store_true", help="continue from latest-checkpoint")
     freeze_parser = subcommands.add_parser("freeze-outcome", help="freeze a trained outcome run before test evaluation")
     freeze_parser.add_argument("--run", type=Path, required=True)
     evaluate_parser = subcommands.add_parser("evaluate-outcome", help="evaluate a frozen run once on the test split")
@@ -403,7 +404,7 @@ def main() -> None:
     elif arguments.command == "train-outcome":
         from .outcome_training import load_outcome_config as load_model_config, train_outcome
 
-        _print(train_outcome(load_model_config(arguments.config), Path.cwd()))
+        _print(train_outcome(load_model_config(arguments.config), Path.cwd(), resume=arguments.resume))
     elif arguments.command == "freeze-outcome":
         from .outcome_eval import freeze_run
 

@@ -45,12 +45,12 @@ VALIDATION_ROW = {
 }
 
 
-def write_workspace(root: Path, variant: str, *, with_validation: bool = True) -> Path:
+def write_workspace(root: Path, variant: str, *, with_validation: bool = True, extra_rows: tuple = ()) -> Path:
     from legal_graph.manifests import graph_to_dict
     from tests.test_outcome_examples import _write
     from tests.test_query_graph import _graph
 
-    corpus, manifest = _write(root, (VALIDATION_ROW,) if with_validation else ())
+    corpus, manifest = _write(root, ((VALIDATION_ROW,) if with_validation else ()) + tuple(extra_rows))
     (root / "graph.json").write_text(json.dumps(graph_to_dict(_graph())), encoding="utf-8")
     config = {
         "schema_version": "1.0.0", "method": "graph_outcome_qlora_v1", "experiment_id": f"tiny-{variant}",
@@ -155,3 +155,88 @@ class TinyTrainingTests(unittest.TestCase):
         self.assertEqual(set(scores), {"allowed", "dismissed", "disposed", "partly_allowed"})
         self.assertTrue(all(value < 0 for value in scores.values()))
         self.assertIsNone(wrapper.prefix_for(None))
+
+
+TRAIN_ROWS = tuple(
+    {"case_id": f"t{i}", "document_id": f"dt{i}", "origin_split": "train", "decision_date": "2016-02-01",
+     "text": f"Section 482 of the CrPC case {i}. " + "y " * 30 + ("The appeal is allowed." if i % 2 else "The appeal is dismissed.")}
+    for i in range(6)
+)
+
+
+@unittest.skipUnless(ML_STACK, "ML stack not installed")
+class ResumeTests(unittest.TestCase):
+    def _config(self, root: Path):
+        path = write_workspace(root, "graph_typed", extra_rows=TRAIN_ROWS)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["checkpoint_every_examples"] = 2
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return load_outcome_config(path)
+
+    def test_interrupted_run_resumes_to_the_same_result(self) -> None:
+        import torch
+        from legal_graph import outcome_training
+        from legal_graph.outcome_training import train_outcome
+
+        with TemporaryDirectory() as first_dir, TemporaryDirectory() as second_dir,                 mock.patch.dict(os.environ, {"LEGAL_GRAPH_SKIP_PARAM_CAP": "1"}):
+            first, second = Path(first_dir), Path(second_dir)
+            reference = train_outcome(self._config(first), first, model=tiny_model(), tokenizer=CharTokenizer())
+
+            original = outcome_training.OutcomeModel.loss
+            calls = {"n": 0}
+
+            def crash_after_ten(self, example, sub):
+                calls["n"] += 1
+                if calls["n"] == 10:  # epoch 2, after the step-2 and step-4 checkpoints of that epoch
+                    raise RuntimeError("simulated session end")
+                return original(self, example, sub)
+
+            config = self._config(second)
+            with mock.patch.object(outcome_training.OutcomeModel, "loss", crash_after_ten):
+                with self.assertRaises(RuntimeError):
+                    train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer())
+            self.assertTrue((second / "run" / "latest-checkpoint" / "state.json").exists())
+            with self.assertRaises(FileExistsError):
+                train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer())
+            resumed = train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer(), resume=True)
+
+            self.assertTrue(resumed["resumed"])
+            self.assertEqual(resumed["history"][-1]["train_loss"], reference["history"][-1]["train_loss"])
+            self.assertEqual(resumed["validation_metrics"], reference["validation_metrics"])
+            self.assertFalse((second / "run" / "latest-checkpoint").exists())
+            first_encoder = torch.load(first / "run" / "encoder.pt")
+            second_encoder = torch.load(second / "run" / "encoder.pt")
+            for key in first_encoder:
+                self.assertTrue(torch.equal(first_encoder[key], second_encoder[key]), key)
+            with self.assertRaises(FileExistsError):
+                train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer(), resume=True)
+
+    def test_resume_refuses_a_changed_config(self) -> None:
+        from dataclasses import replace
+        from legal_graph import outcome_training
+        from legal_graph.outcome_training import train_outcome
+
+        with TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"LEGAL_GRAPH_SKIP_PARAM_CAP": "1"}):
+            root = Path(directory)
+            config = self._config(root)
+            original = outcome_training.OutcomeModel.loss
+            calls = {"n": 0}
+
+            def crash(self, example, sub):
+                calls["n"] += 1
+                if calls["n"] == 5:
+                    raise RuntimeError("stop")
+                return original(self, example, sub)
+
+            with mock.patch.object(outcome_training.OutcomeModel, "loss", crash):
+                with self.assertRaises(RuntimeError):
+                    train_outcome(config, root, model=tiny_model(), tokenizer=CharTokenizer())
+            with self.assertRaises(ValueError):
+                train_outcome(replace(config, learning_rate=0.5), root, model=tiny_model(), tokenizer=CharTokenizer(), resume=True)
+
+    def test_checkpoint_interval_must_respect_accumulation(self) -> None:
+        with TemporaryDirectory() as directory:
+            data = json.loads(write_workspace(Path(directory), "text").read_text(encoding="utf-8"))
+        with self.assertRaises(ValueError):
+            config_from_dict({**data, "gradient_accumulation": 4, "checkpoint_every_examples": 6})
+        self.assertEqual(config_from_dict({**data, "gradient_accumulation": 4, "checkpoint_every_examples": 8}).checkpoint_every_examples, 8)

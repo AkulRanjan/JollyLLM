@@ -41,5 +41,6 @@
     "expansion_hops": 2,
     "node_feature_tokens": 48
   },
-  "extractor": "v2"
+  "extractor": "v2",
+  "checkpoint_every_examples": 48
 }
