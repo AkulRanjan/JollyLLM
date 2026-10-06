@@ -104,3 +104,31 @@ class StatuteExtractionTests(unittest.TestCase):
         self.assertEqual(len(checksum), 64)
         self.assertIn('"section":"1"', line)
         self.assertIn('"source_page_start":1', line)
+
+
+class StatuteJsonIngestionTests(unittest.TestCase):
+    def test_ingests_numbered_records_and_skips_preamble(self) -> None:
+        import hashlib
+        import json
+        from tempfile import TemporaryDirectory
+
+        from legal_graph.statutes import ingest_statute_json, spec_for
+
+        records = [
+            {"article": "0", "title": "Preamble", "description": "We, the people"},
+            {"article": "21", "title": "Protection of life", "description": "No person shall be deprived"},
+            {"article": "21a", "title": "Right to education", "description": "The State shall provide"},
+            {"article": "21", "title": "Duplicate", "description": "x"},
+        ]
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "coi.json"
+            path.write_text(json.dumps(records), encoding="utf-8")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            ingestion = ingest_statute_json(path, spec_for("constitution"), number_field="article",
+                                            title_field="title", text_field="description", expected_sha256=digest)
+            with self.assertRaises(ValueError):
+                ingest_statute_json(path, spec_for("constitution"), number_field="article", title_field="title",
+                                    text_field="description", expected_sha256="0" * 64)
+        self.assertEqual([p.section for p in ingestion.provisions], ["21", "21A"])
+        self.assertEqual(ingestion.duplicate_sections, ("21",))
+        self.assertTrue(ingestion.provisions[0].text.startswith("21. Protection of life."))

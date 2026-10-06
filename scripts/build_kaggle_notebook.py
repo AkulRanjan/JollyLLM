@@ -31,6 +31,27 @@ BASE_GRAPH_FILES = ("data/graphs/india_statutes/graph.json", "data/graphs/india_
 EXPECTED_FIELDS = ("corpus_sha256", "content_sha256", "graph_content_sha256", "source_sha256", "split_counts")
 
 
+V1_GRAPH = "data/graphs/judgments/sc-2016/graph.json"
+GRAPH_BUILDS = {
+    V1_GRAPH: {
+        "args": [],
+        "training_manifest": "data/clean/judgments/training.manifest.json",
+        "statute_files": BASE_GRAPH_FILES,
+        "provisions": "data/clean/india_statutes/provisions.jsonl",
+    },
+    "data/graphs/judgments/sc-2016-v2/graph.json": {
+        "args": ["--extractor", "v2", "--base-graph", "data/graphs/india_statutes-v2/graph.json",
+                 "--output-dir", "data/graphs/judgments/sc-2016-v2",
+                 "--report-output", "data/reports/judgments/sc-2016-v2/extraction-report.json",
+                 "--training-manifest", "data/clean/judgments/training.v2.manifest.json",
+                 "--graph-version", "india-statutes-sc2016-0.2.0"],
+        "training_manifest": "data/clean/judgments/training.v2.manifest.json",
+        "statute_files": ("data/graphs/india_statutes-v2/graph.json", "data/graphs/india_statutes-v2/graph.manifest.json"),
+        "provisions": "data/clean/india_statutes-v2/provisions.jsonl",
+    },
+}
+
+
 def bundle_paths() -> list[Path]:
     paths = sorted((ROOT / "src/legal_graph").glob("*.py"))
     paths += sorted((ROOT / "configs").rglob("*.json"))
@@ -56,8 +77,8 @@ def build_bundle(paths: list[Path]) -> bytes:
     return buffer.getvalue()
 
 
-def expected_hashes() -> dict[str, object]:
-    manifest = json.loads(TRAINING_MANIFEST.read_text(encoding="utf-8"))
+def expected_hashes(training_manifest: Path = TRAINING_MANIFEST) -> dict[str, object]:
+    manifest = json.loads(training_manifest.read_text(encoding="utf-8"))
     return {field: manifest[field] for field in EXPECTED_FIELDS}
 
 
@@ -374,9 +395,9 @@ print(f"weights staged at {model_dir}: {size / 1e9:.2f} GB")
 
 INGEST = """
 # 6. Rebuild the corpus, graph, and training manifest; they must match the local build byte for byte.
-run("-m", "legal_graph.cli", "ingest-sc2016", "--code-revision", f"kaggle-bundle-{BUNDLE_SHA256[:16]}")
+run("-m", "legal_graph.cli", "ingest-sc2016", "--code-revision", f"kaggle-bundle-{BUNDLE_SHA256[:16]}", *INGEST_ARGS)
 
-training_manifest = json.loads((WORK / "data/clean/judgments/training.manifest.json").read_text(encoding="utf-8"))
+training_manifest = json.loads((WORK / TRAINING_MANIFEST_PATH).read_text(encoding="utf-8"))
 mismatches = {field: (training_manifest.get(field), expected) for field, expected in EXPECTED.items()
               if training_manifest.get(field) != expected}
 if mismatches:
@@ -494,7 +515,7 @@ if output_dir.is_dir() and any(output_dir.iterdir()):
     raise FileExistsError(f"{output_dir} already has results")
 lineage = OUT / "lineage" / train_config["experiment_id"]
 lineage.mkdir(parents=True, exist_ok=True)
-for relative in ("data/clean/judgments/training.manifest.json", "data/graphs/judgments/sc-2016/graph.manifest.json"):
+for relative in (TRAINING_MANIFEST_PATH, str(Path(train_config["graph_path"]).parent / "graph.manifest.json")):
     shutil.copy2(WORK / relative, lineage / Path(relative).name)
 shutil.copy2(WORK / config_path, lineage / "outcome-config.json")
 run("-m", "legal_graph.cli", "train-outcome", "--config", config_path)
@@ -544,14 +565,19 @@ def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
     config = f"configs/training/outcome/{stem}.json"
     if not (ROOT / config).is_file():
         raise SystemExit(f"unknown outcome config {config}")
-    paths = bundle_paths() + [ROOT / "data/clean/india_statutes/provisions.jsonl"]
+    graph_path = json.loads((ROOT / config).read_text(encoding="utf-8"))["graph_path"]
+    if graph_path not in GRAPH_BUILDS:
+        raise SystemExit(f"no Kaggle graph build is defined for {graph_path}")
+    build = GRAPH_BUILDS[graph_path]
+    base = bundle_paths()
+    paths = base + [ROOT / relative for relative in (*build["statute_files"], build["provisions"]) if ROOT / relative not in base]
     bundle = build_bundle(paths)
     settings = SETTINGS.replace('RUN = "qwen3-8b"', f'RUN = "{stem}"').replace(
         'CONFIG = CONFIGS[RUN]', f'CONFIGS[RUN] = "{config}"\nCONFIG = CONFIGS[RUN]')
     cells = [
         markdown(OUTCOME_INTRO.format(stem=stem, phase=phase)),
         code(settings),
-        code(_bundle_cell(paths, bundle), hidden=True),
+        code(_bundle_cell(paths, bundle, build), hidden=True),
         code(ENVIRONMENT),
         code(UNPACK),
         code(DATA),
@@ -612,7 +638,8 @@ def selftest_notebook() -> dict[str, object]:
     return _notebook(cells)
 
 
-def _bundle_cell(paths: list[Path], bundle: bytes) -> str:
+def _bundle_cell(paths: list[Path], bundle: bytes, build: dict | None = None) -> str:
+    build = build or GRAPH_BUILDS[V1_GRAPH]
     encoded = base64.b64encode(bundle).decode("ascii")
     wrapped = "\n".join(encoded[start : start + 120] for start in range(0, len(encoded), 120))
     files = [path.relative_to(ROOT).as_posix() for path in paths]
@@ -620,7 +647,9 @@ def _bundle_cell(paths: list[Path], bundle: bytes) -> str:
         "# Embedded project bundle, generated by scripts/build_kaggle_notebook.py. Regenerate it; don't edit by hand.\n"
         f"BUNDLE_SHA256 = {hashlib.sha256(bundle).hexdigest()!r}\n"
         f"BUNDLE_FILES = {json.dumps(files, indent=4)}\n"
-        f"EXPECTED = {json.dumps(expected_hashes(), indent=4, sort_keys=True)}\n"
+        f"EXPECTED = {json.dumps(expected_hashes(ROOT / build['training_manifest']), indent=4, sort_keys=True)}\n"
+        f"INGEST_ARGS = {json.dumps(build['args'])}\n"
+        f"TRAINING_MANIFEST_PATH = {build['training_manifest']!r}\n"
         f'BUNDLE_B64 = """\n{wrapped}\n"""\n'
     )
 
@@ -700,6 +729,8 @@ def main() -> None:
         f"BUNDLE_SHA256 = {bundle_sha256!r}\n"
         f"BUNDLE_FILES = {json.dumps(files, indent=4)}\n"
         f"EXPECTED = {json.dumps(expected_hashes(), indent=4, sort_keys=True)}\n"
+        "INGEST_ARGS = []\n"
+        "TRAINING_MANIFEST_PATH = 'data/clean/judgments/training.manifest.json'\n"
         f'BUNDLE_B64 = """\n{wrapped}\n"""\n'
     )
     notebook = {

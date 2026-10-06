@@ -159,6 +159,57 @@ def ingest_statute_pdf(path: Path, spec: StatuteSpec | None = None) -> StatuteIn
     )
 
 
+def ingest_statute_json(
+    path: Path,
+    spec: StatuteSpec,
+    *,
+    number_field: str,
+    title_field: str,
+    text_field: str,
+    expected_sha256: str | None = None,
+) -> StatuteIngestion:
+    """Ingest a structured (JSON list) statute transcription; numbering comes from the records."""
+
+    payload = path.read_bytes()
+    source_hash = hashlib.sha256(payload).hexdigest()
+    if expected_sha256 and source_hash != expected_sha256:
+        raise ValueError(f"{path.name}: checksum {source_hash} does not match the registry")
+    records = json.loads(payload.decode("utf-8"))
+    provisions: list[Provision] = []
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for record in records:
+        number = str(record.get(number_field, "")).strip().upper()
+        if not re.fullmatch(r"[1-9]\d{0,2}[A-Z]{0,2}", number):
+            continue  # preamble ("0") and unnumbered material
+        if number in seen:
+            duplicates.append(number)
+            continue
+        seen.add(number)
+        title = str(record.get(title_field, "")).strip()
+        body = str(record.get(text_field, "")).strip()
+        provisions.append(Provision(section=number, text=f"{number}. {title}. {body}".strip(), source_page_start=0, source_page_end=0))
+    if not provisions:
+        raise ValueError(f"no numbered provisions found in {path.name!r}")
+    return StatuteIngestion(
+        spec=spec,
+        document_id=f"doc:india:statute:{spec.act_id}:{source_hash[:16]}",
+        source_path=path,
+        source_sha256=source_hash,
+        page_count=0,
+        body_start_page=0,
+        provisions=tuple(provisions),
+        duplicate_sections=tuple(sorted(set(duplicates), key=_section_sort_key)),
+    )
+
+
+def spec_for(act_id: str) -> StatuteSpec:
+    for spec in KNOWN_STATUTES:
+        if spec.act_id == act_id:
+            return spec
+    raise KeyError(act_id)
+
+
 def extract_provisions_from_pages(
     pages: Sequence[tuple[int, str]],
     section_start: re.Pattern[str] = _SECTION_START,

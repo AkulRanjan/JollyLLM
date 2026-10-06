@@ -13,7 +13,7 @@ MATCHED = ("model_revision", "max_prompt_tokens", "epochs", "learning_rate", "se
 class OutcomeConfigTests(unittest.TestCase):
     def test_every_config_loads_into_its_own_output_dir(self) -> None:
         paths = sorted(CONFIG_DIR.glob("*.json"))
-        self.assertGreaterEqual(len(paths), 25)
+        self.assertGreaterEqual(len(paths), 40)
         outputs = set()
         for path in paths:
             with self.subTest(path=path.name):

@@ -1,0 +1,36 @@
+{
+  "registry_version": "1.0.0",
+  "statute_layer_version": "india-statutes-0.2.0",
+  "notes": "India Code (indiacode.nic.in) returned HTTP 403/504 to automated access on 2026-10-06, from this machine and from Kaggle. The IPC, Evidence Act and Constitution therefore come from public JSON transcriptions pinned to exact commits and checked by SHA-256. BNS, BNSS and CrPC keep their original India Code PDFs from layer 0.1.",
+  "pdf_sources": {
+    "bns": "data/raw/india_code/bharatiya-nyaya-sanhita-bns.pdf",
+    "bnss": "data/raw/india_code/Bharatiya_Nagarik_Suraksha_Sanhita,_2023.pdf",
+    "crpc": "data/raw/india_code/the_code_of_criminal_procedure,_1973.pdf"
+  },
+  "json_sources": {
+    "ipc": {
+      "path": "data/raw/statutes_json/ipc.json",
+      "url": "https://raw.githubusercontent.com/civictech-India/Indian-Law-Penal-Code-Json/6602cf81d5534d193d467b0b132420cfb3bfb239/ipc.json",
+      "sha256": "3940646ce396cf5313d5449523847671415be04934e295fdf9889bbe81b41988",
+      "number_field": "Section",
+      "title_field": "section_title",
+      "text_field": "section_desc"
+    },
+    "iea": {
+      "path": "data/raw/statutes_json/iea.json",
+      "url": "https://raw.githubusercontent.com/civictech-India/Indian-Law-Penal-Code-Json/6602cf81d5534d193d467b0b132420cfb3bfb239/iea.json",
+      "sha256": "cc799202bea82658ff55e83bb6c6622e7047e4068e20314213944a1bc2f481ee",
+      "number_field": "section",
+      "title_field": "section_title",
+      "text_field": "section_desc"
+    },
+    "constitution": {
+      "path": "data/raw/statutes_json/constitution_of_india.json",
+      "url": "https://raw.githubusercontent.com/civictech-India/constitution-of-india/48871da69fd03cf2f85aa845f0f99da815adf17b/constitution_of_india.json",
+      "sha256": "4ac17b53c465760709bf3a9467647ba8c32150d0c6269099f23e0893280e8b06",
+      "number_field": "article",
+      "title_field": "title",
+      "text_field": "description"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "method": "graph_outcome_qlora_v1",
+  "experiment_id": "qwen25-0.5b-smoke-graph-typed-g2-v1",
+  "variant": "graph_typed",
+  "selector": "expansion",
+  "model_source": "Qwen/Qwen2.5-0.5B-Instruct",
+  "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "local_model_path": "models/qwen2.5-0.5b-instruct",
+  "corpus_path": "data/clean/judgments/sc-2016/judgments.jsonl",
+  "training_data_manifest": "data/clean/judgments/training.v2.manifest.json",
+  "graph_path": "data/graphs/judgments/sc-2016-v2/graph.json",
+  "provisions_path": "data/clean/india_statutes-v2/provisions.jsonl",
+  "output_dir": "checkpoints/outcome/qwen25-0.5b-smoke-graph-typed-g2-v1",
+  "input_character_limit": 6000,
+  "max_prompt_tokens": 512,
+  "epochs": 1,
+  "learning_rate": 0.0001,
+  "encoder_learning_rate": 0.0005,
+  "gradient_accumulation": 4,
+  "seed": 20261006,
+  "quantize_4bit": false,
+  "min_cuda_memory_bytes": 0,
+  "max_train_examples": 359,
+  "lora": {
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj"
+    ]
+  },
+  "graph": {
+    "num_tokens": 8,
+    "hidden_dim": 128,
+    "layers": 2,
+    "node_budget": 32,
+    "expansion_hops": 2,
+    "node_feature_tokens": 48
+  },
+  "extractor": "v2"
+}
