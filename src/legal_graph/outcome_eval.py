@@ -79,7 +79,7 @@ def evaluate_frozen(
     wrapper = OutcomeModel(model, tokenizer, encoder, config.max_prompt_tokens, device, features,
                            build_evidence(config, root), config.max_evidence_tokens)
     examples = load_outcome_examples(root / config.corpus_path, root / config.training_data_manifest, "test",
-                                     config.input_character_limit, allow_test_labels=True)
+                                     config.input_character_limit, allow_test_labels=True, input_view_id=config.input_view)
     if not examples:
         raise ValueError("no labelled test examples")
     rows = score_examples(wrapper, examples, SubgraphBuilder(graph, config), ablate_graph=ablate_graph)

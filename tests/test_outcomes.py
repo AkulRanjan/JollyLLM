@@ -63,3 +63,43 @@ def _record(case_id: str, split: str, text: str) -> dict[str, str]:
         "origin_split": split,
         "text": text,
     }
+
+
+class InputViewV2Tests(unittest.TestCase):
+    HEADNOTE = "Criminal law - murder - Dismissing the appeal, the Court HELD: conviction upheld.\n"
+    BODY = "The Judgment of the Court was delivered by\nX, J. 1. The appellant was convicted by the trial court. " + "facts " * 300
+
+    def test_headnote_is_removed(self) -> None:
+        from legal_graph.outcomes import build_input_view_v2
+
+        text = self.HEADNOTE + self.BODY + "operative " * 400 + "The appeal is dismissed."
+        view = build_input_view_v2(text, 6000)
+        self.assertNotIn("Dismissing", view)
+        self.assertNotIn("HELD", view)
+        self.assertTrue(view.lstrip().startswith("The Judgment of the Court"))
+
+    def test_view_never_reaches_the_label_region(self) -> None:
+        from legal_graph.outcomes import build_input_view_v2
+
+        text = self.BODY + "The appeal is allowed. " * 5
+        view = build_input_view_v2(text, 100000)
+        self.assertLessEqual(len(view), int(len(text) * 0.7))
+
+    def test_wider_phrasings_are_masked(self) -> None:
+        from legal_graph.outcomes import build_input_view_v2
+
+        body = self.BODY + " We allow the appeal. The petition deserves to be dismissed. Partly allowing the appeals, we direct. " + "x " * 2000
+        view = build_input_view_v2(body, 6000)
+        for phrase in ("We allow", "deserves to be dismissed", "Partly allowing the appeals"):
+            self.assertNotIn(phrase, view)
+
+    def test_missing_body_marker_excludes_the_case(self) -> None:
+        from legal_graph.outcomes import build_input_view_v2
+
+        self.assertIsNone(build_input_view_v2(self.HEADNOTE * 50, 6000))
+
+    def test_unknown_view_is_rejected(self) -> None:
+        from legal_graph.outcomes import input_view
+
+        with self.assertRaises(ValueError):
+            input_view("raw", "text", 10)

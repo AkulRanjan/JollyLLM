@@ -5,19 +5,24 @@
   "primary_metric": "macro_f1",
   "bootstrap_resamples": 10000,
   "controls": {
-    "qwen3-8b": "qwen3-8b-text-v1",
-    "saul-7b": "saul-7b-text-v1",
-    "qwen3-4b-s1": "qwen3-4b-text-s1-v1",
-    "qwen3-4b-s2": "qwen3-4b-text-s2-v1",
-    "qwen3-4b-s3": "qwen3-4b-text-s3-v1"
+    "qwen3-8b": "qwen3-8b-text-v2",
+    "saul-7b": "saul-7b-text-v2",
+    "qwen3-4b-s1": "qwen3-4b-text-s1-v2",
+    "qwen3-4b-s2": "qwen3-4b-text-s2-v2",
+    "qwen3-4b-s3": "qwen3-4b-text-s3-v2"
   },
   "projection_variant_for": {
-    "qwen3-8b-zero-shot-v1": "qwen7b-zeroshot-prompt",
-    "qwen3-8b-bm25-prompt-g2-v1": "qwen7b-bm25-prompt",
-    "qwen3-8b-text-v1": "qwen7b-qlora-text",
-    "qwen3-8b-graph-untyped-g2-v1": "qwen7b-graph-untyped",
-    "qwen3-8b-graph-typed-pcst-g2-v1": "qwen7b-graph-typed-rgcn",
-    "saul-7b-graph-typed-pcst-g2-v1": "saullm7b-graph-typed-rgcn"
+    "qwen3-8b-zero-shot-v2": "qwen7b-zeroshot-prompt",
+    "qwen3-8b-bm25-prompt-g2-v2": "qwen7b-bm25-prompt",
+    "qwen3-8b-text-v2": "qwen7b-qlora-text",
+    "qwen3-8b-graph-untyped-g2-v2": "qwen7b-graph-untyped",
+    "qwen3-8b-graph-typed-pcst-g2-v2": "qwen7b-graph-typed-rgcn",
+    "saul-7b-graph-typed-pcst-g2-v2": "saullm7b-graph-typed-rgcn"
   },
-  "note": "The projection names Qwen2.5-7B; the measured runs use Qwen3-8B. The mapping pairs rungs, not identical models."
+  "note": "The projection names Qwen2.5-7B; the measured runs use Qwen3-8B. The mapping pairs rungs, not identical models.",
+  "required_input_view": "body-prefix-masked-v2",
+  "excluded_runs": {
+    "qwen3-8b-text-v1": "trained on input view v1, which exposes the SCR headnote outcome",
+    "saul-7b-text-v1": "trained on input view v1, which exposes the SCR headnote outcome"
+  }
 }

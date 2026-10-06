@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from .models import GraphSnapshot, NodeType
-from .outcomes import LABELS, build_input_view, infer_disposition
+from .outcomes import LABELS, infer_disposition, input_view
 from .training import _sha256_file
 
 _FIELDS = {"train": "training_splits", "validation": "validation_splits", "test": "held_out_splits"}
@@ -42,6 +42,7 @@ def load_outcome_examples(
     character_limit: int,
     *,
     allow_test_labels: bool = False,
+    input_view_id: str = "prefix-with-disposition-masking-v1",
 ) -> tuple[OutcomeExample, ...]:
     """Masked-view examples for one split; test labels stay hidden unless explicitly allowed."""
     if split not in _FIELDS:
@@ -67,6 +68,9 @@ def load_outcome_examples(
                 label = None
             if label is None and not hide:
                 continue
+            view = input_view(input_view_id, text, character_limit)
+            if view is None:
+                continue  # no reliable judgment-body start: excluded rather than shown a headnote
             raw_date = row.get("decision_date")
             raw_year = str((row.get("attributes") or {}).get("year", "")).strip()
             examples.append(
@@ -74,7 +78,7 @@ def load_outcome_examples(
                     case_id=str(row["case_id"]),
                     document_id=str(row["document_id"]),
                     split=split,
-                    view_text=build_input_view(text, character_limit),
+                    view_text=view,
                     label=None if hide else label,
                     decision_date=date.fromisoformat(raw_date) if raw_date else None,
                     year=int(raw_year) if raw_year.isdigit() else None,

@@ -74,6 +74,7 @@ class OutcomeTrainConfig:
     bm25_top_k: int = 0
     max_evidence_tokens: int = 0
     checkpoint_every_examples: int = 0
+    input_view: str = "prefix-with-disposition-masking-v1"
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -126,7 +127,12 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         bm25_top_k=int(data.get("evidence", {}).get("top_k", 0)),
         max_evidence_tokens=int(data.get("evidence", {}).get("max_tokens", 0)),
         checkpoint_every_examples=int(data.get("checkpoint_every_examples", 0)),
+        input_view=str(data.get("input_view", "prefix-with-disposition-masking-v1")),
     )
+    from .outcomes import INPUT_VIEWS
+
+    if config.input_view not in INPUT_VIEWS:
+        raise ValueError(f"unknown input view {config.input_view!r}")
     if config.checkpoint_every_examples < 0 or config.checkpoint_every_examples % config.gradient_accumulation:
         raise ValueError("checkpoint_every_examples must be a non-negative multiple of gradient_accumulation")
     if config.extractor not in ("v1", "v2"):
@@ -326,8 +332,8 @@ def train_outcome(
     if resume_state is None and output.exists() and any(output.iterdir()):
         raise FileExistsError(f"refusing to overwrite {output} (pass resume=True to continue an interrupted run)")
     corpus, manifest = root / config.corpus_path, root / config.training_data_manifest
-    train = load_outcome_examples(corpus, manifest, "train", config.input_character_limit)
-    validation = load_outcome_examples(corpus, manifest, "validation", config.input_character_limit)
+    train = load_outcome_examples(corpus, manifest, "train", config.input_character_limit, input_view_id=config.input_view)
+    validation = load_outcome_examples(corpus, manifest, "validation", config.input_character_limit, input_view_id=config.input_view)
     if not train or not validation:
         raise ValueError("train and validation splits must both contain labelled cases")
     if any(example.label is None for example in (*train, *validation)):

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "method": "graph_outcome_qlora_v1",
-  "experiment_id": "qwen3-4b-graph-typed-g2-s2-v1",
+  "experiment_id": "qwen3-4b-graph-typed-g2-s2-v2",
   "variant": "graph_typed",
   "selector": "expansion",
   "model_source": "Qwen/Qwen3-4B",
@@ -11,7 +11,7 @@
   "training_data_manifest": "data/clean/judgments/training.v2.manifest.json",
   "graph_path": "data/graphs/judgments/sc-2016-v2/graph.json",
   "provisions_path": "data/clean/india_statutes-v2/provisions.jsonl",
-  "output_dir": "checkpoints/outcome/qwen3-4b-graph-typed-g2-s2-v1",
+  "output_dir": "checkpoints/outcome/qwen3-4b-graph-typed-g2-s2-v2",
   "input_character_limit": 6000,
   "max_prompt_tokens": 1536,
   "epochs": 3,
@@ -45,5 +45,6 @@
     "node_feature_tokens": 48
   },
   "extractor": "v2",
-  "checkpoint_every_examples": 96
+  "checkpoint_every_examples": 96,
+  "input_view": "body-prefix-masked-v2"
 }

@@ -84,3 +84,17 @@ class ResultsTests(unittest.TestCase):
             report = collect(root, SETTINGS)
         group = report["seed_groups"]["qwen3-4b-graph-typed-g2"]
         self.assertEqual(group["test_macro_f1"]["n"], 2)
+
+
+class ExclusionTests(unittest.TestCase):
+    def test_runs_on_another_input_view_are_excluded(self) -> None:
+        gold = list(LABELS) * 2
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            leaky = make_run(root, "a", "qwen3-8b-text-v1", "text", gold, gold)
+            (leaky / "config.json").write_text(json.dumps({"input_view": "prefix-with-disposition-masking-v1"}), encoding="utf-8")
+            clean = make_run(root, "b", "qwen3-8b-text-v2", "text", gold, gold)
+            (clean / "config.json").write_text(json.dumps({"input_view": "body-prefix-masked-v2"}), encoding="utf-8")
+            report = collect(root, {**SETTINGS, "required_input_view": "body-prefix-masked-v2"})
+        self.assertEqual([row["experiment_id"] for row in report["runs"]], ["qwen3-8b-text-v2"])
+        self.assertIn("qwen3-8b-text-v1", report["excluded_runs"])

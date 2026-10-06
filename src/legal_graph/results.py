@@ -50,6 +50,19 @@ def _predictions(run: Path, name: str) -> dict[str, dict] | None:
 def collect(root: Path, settings: Mapping[str, Any]) -> dict[str, Any]:
     runs = discover_runs(root)
     rows: list[dict[str, Any]] = []
+    excluded: dict[str, str] = {}
+    required_view = settings.get("required_input_view")
+    for experiment, run in sorted(runs.items()):
+        config_path = run / "config.json"
+        view = json.loads(config_path.read_text(encoding="utf-8")).get("input_view", "prefix-with-disposition-masking-v1") \
+            if config_path.exists() else None
+        if experiment in settings.get("excluded_runs", {}):
+            excluded[experiment] = settings["excluded_runs"][experiment]
+            continue
+        if required_view and view != required_view:
+            excluded[experiment] = f"input view {view!r} is not the required {required_view!r}"
+            continue
+    runs = {experiment: run for experiment, run in runs.items() if experiment not in excluded}
     for experiment, run in sorted(runs.items()):
         manifest = json.loads((run / "run.manifest.json").read_text(encoding="utf-8"))
         row: dict[str, Any] = {
@@ -111,6 +124,7 @@ def collect(root: Path, settings: Mapping[str, Any]) -> dict[str, Any]:
         "runs": rows,
         "seed_groups": seed_summary,
         "measured_vs_projected": forecast,
+        "excluded_runs": excluded,
         "notes": settings.get("note", ""),
     }
 

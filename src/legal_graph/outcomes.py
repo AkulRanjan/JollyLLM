@@ -36,6 +36,7 @@ class OutcomeBaselineConfig:
     input_character_limit: int
     vocabulary_size: int
     alpha: float
+    input_view_id: str = "prefix-with-disposition-masking-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,8 +56,8 @@ def load_config(path: Path) -> OutcomeBaselineConfig:
     if data.get("schema_version") != "1.0.0" or data.get("method") != "train_only_multinomial_nb_v1":
         raise OutcomeConfigurationError("config must specify schema 1.0.0 and train_only_multinomial_nb_v1")
     input_view = data.get("input_view")
-    if not isinstance(input_view, Mapping) or input_view.get("id") != "prefix-with-disposition-masking-v1":
-        raise OutcomeConfigurationError("config requires the approved disposition-masked input view")
+    if not isinstance(input_view, Mapping) or input_view.get("id") not in INPUT_VIEWS:
+        raise OutcomeConfigurationError(f"config requires an approved input view: {INPUT_VIEWS}")
     try:
         config = OutcomeBaselineConfig(
             experiment_id=str(data["experiment_id"]),
@@ -67,6 +68,7 @@ def load_config(path: Path) -> OutcomeBaselineConfig:
             input_character_limit=int(input_view["character_limit"]),
             vocabulary_size=int(data["vocabulary_size"]),
             alpha=float(data["alpha"]),
+            input_view_id=str(input_view["id"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise OutcomeConfigurationError(f"invalid outcome baseline config: {error}") from error
@@ -93,6 +95,70 @@ def build_input_view(text: str, character_limit: int) -> str:
     return view
 
 
+# ---------------------------------------------------------------------------
+# body-prefix-masked-v2. v1 above exposed the SCR headnote ("Dismissing the appeal,
+# the Court HELD: ..."), which states the outcome. v2 starts after the headnote, stops
+# well before the label region, and masks a wider set of disposition phrasings.
+# ---------------------------------------------------------------------------
+
+INPUT_VIEWS = ("prefix-with-disposition-masking-v1", "body-prefix-masked-v2")
+_BODY_STARTS = (
+    re.compile(r"(?:the\s+)?judgments?\s+of\s+the\s+court\s+(?:was|were)\s+delivered\s+by", re.IGNORECASE),
+    re.compile(r"(?:CIVIL|CRIMINAL|ORIGINAL)\s+(?:APPELLATE\s+)?JURISDICTION", re.IGNORECASE),
+    re.compile(r"^\s*#*\s*(?:O\s*R\s*D\s*E\s*R|JUDGMENT|J\s*U\s*D\s*G\s*M\s*E\s*N\s*T)\s*$", re.MULTILINE),
+)
+_V2_SUBJECT = (
+    r"(?:appeals?|petitions?|applications?|writ\s+petitions?|special\s+leave\s+petitions?|civil\s+appeals?|"
+    r"criminal\s+appeals?|SLPs?|review\s+petitions?|transfer\s+petitions?|suits?|cases?|matters?)"
+)
+_V2_MASKS = (
+    re.compile(rf"\b(?:partly\s+allowing|partially\s+allowing|allowing|dismissing|disposing\s+of|disposing)\b[^.;]{{0,60}}?\b{_V2_SUBJECT}", re.IGNORECASE),
+    re.compile(rf"\b{_V2_SUBJECT}\b[^.;]{{0,80}}?\b(?:partly\s+allowed|partially\s+allowed|allowed|dismissed|disposed\s+of|disposed)\b", re.IGNORECASE),
+    re.compile(r"\bwe\s+(?:partly\s+|partially\s+)?(?:allow|dismiss|dispose\s+of)\b", re.IGNORECASE),
+    re.compile(r"\b(?:deserves?|liable|fit|bound)\s+to\s+be\s+(?:partly\s+|partially\s+)?(?:allowed|dismissed|set\s+aside|quashed|upheld)\b", re.IGNORECASE),
+    re.compile(r"\bHELD\b\s*[:.-]?", re.IGNORECASE),
+)
+_V2_MAX_DOCUMENT_FRACTION = 0.7  # labels come from the final 20%; never read past 70%
+_V2_MIN_CHARACTERS = 500
+
+
+def body_start(text: str) -> int | None:
+    """Offset of the judgment body: the delivered-by line, else the jurisdiction block, else an ORDER/JUDGMENT heading."""
+    for pattern in _BODY_STARTS:
+        match = pattern.search(text)
+        if match:
+            return match.start()
+    return None
+
+
+def build_input_view_v2(text: str, character_limit: int) -> str | None:
+    """Judgment-body prefix with the headnote removed, capped before the label region, widely masked.
+
+    Returns None when no body marker exists or too little body text precedes the cap; such cases are
+    excluded from the outcome task rather than shown a view that might contain the headnote.
+    """
+    start = body_start(text)
+    if start is None:
+        return None
+    end = min(start + character_limit, int(len(text) * _V2_MAX_DOCUMENT_FRACTION))
+    if end - start < _V2_MIN_CHARACTERS:
+        return None
+    view = text[start:end]
+    for _, pattern in _OUTCOME_PATTERNS:
+        view = pattern.sub(" outcome_phrase ", view)
+    for pattern in _V2_MASKS:
+        view = pattern.sub(" outcome_phrase ", view)
+    return view
+
+
+def input_view(view_id: str, text: str, character_limit: int) -> str | None:
+    if view_id == "prefix-with-disposition-masking-v1":
+        return build_input_view(text, character_limit)
+    if view_id == "body-prefix-masked-v2":
+        return build_input_view_v2(text, character_limit)
+    raise ValueError(f"unknown input view {view_id!r}")
+
+
 def run(config: OutcomeBaselineConfig, workspace_root: Path) -> dict[str, object]:
     corpus_path = workspace_root / config.corpus_path
     manifest_path = workspace_root / config.training_data_manifest
@@ -100,7 +166,8 @@ def run(config: OutcomeBaselineConfig, workspace_root: Path) -> dict[str, object
     manifest = _load_manifest(manifest_path, corpus_path)
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"refusing to overwrite {output_dir}")
-    cases = _read_cases(corpus_path)
+    all_cases = _read_cases(corpus_path)
+    cases = tuple(case for case in all_cases if _view(case, config) is not None)
     train = _labelled_cases(cases, _splits(manifest, "training_splits"))
     validation = _labelled_cases(cases, _splits(manifest, "validation_splits"))
     test = _unlabelled_cases(cases, _splits(manifest, "held_out_splits"))
@@ -123,10 +190,11 @@ def run(config: OutcomeBaselineConfig, workspace_root: Path) -> dict[str, object
         "method": "train_only_multinomial_nb_v1",
         "corpus_sha256": _sha256_file(corpus_path),
         "training_manifest_sha256": _sha256_file(manifest_path),
-        "input_view_id": "prefix-with-disposition-masking-v1",
+        "input_view_id": config.input_view_id,
         "training_cases_labelled": len(train),
         "validation_cases_labelled": len(validation),
         "test_cases_predicted": len(test_outputs),
+        "cases_without_input_view": len(all_cases) - len(cases),
         "test_labels_accessed": False,
         "test_labels_evaluated": False,
         "prediction_path": str(predictions_path),
@@ -155,6 +223,10 @@ def run(config: OutcomeBaselineConfig, workspace_root: Path) -> dict[str, object
         "test_cases_predicted": len(test_outputs),
         "test_labels_accessed": False,
     }
+
+
+def _view(case: CaseInput, config: OutcomeBaselineConfig) -> str | None:
+    return input_view(config.input_view_id, case.text, config.input_character_limit)
 
 
 def _load_manifest(path: Path, corpus_path: Path) -> Mapping[str, object]:
@@ -217,13 +289,13 @@ def _unlabelled_cases(cases: Sequence[CaseInput], held_out_splits: frozenset[str
 def _fit_predictor(train: Sequence[tuple[CaseInput, str]], config: OutcomeBaselineConfig) -> Mapping[str, object]:
     document_frequency: Counter[str] = Counter()
     for case, _ in train:
-        document_frequency.update(set(_tokens(build_input_view(case.text, config.input_character_limit))))
+        document_frequency.update(set(_tokens(_view(case, config))))
     vocabulary = frozenset(token for token, _ in document_frequency.most_common(config.vocabulary_size))
     class_documents: Counter[str] = Counter(label for _, label in train)
     class_tokens: dict[str, Counter[str]] = {label: Counter() for label in LABELS}
     class_totals: Counter[str] = Counter()
     for case, label in train:
-        tokens = [token for token in _tokens(build_input_view(case.text, config.input_character_limit)) if token in vocabulary]
+        tokens = [token for token in _tokens(_view(case, config)) if token in vocabulary]
         class_tokens[label].update(tokens)
         class_totals[label] += len(tokens)
     return {
@@ -243,7 +315,7 @@ def _prediction(case: CaseInput, predictor: Mapping[str, object], config: Outcom
     class_totals = predictor["class_totals"]
     document_count = int(predictor["document_count"])
     alpha = float(predictor["alpha"])
-    tokens = [token for token in _tokens(build_input_view(case.text, config.input_character_limit)) if token in vocabulary]
+    tokens = [token for token in _tokens(_view(case, config)) if token in vocabulary]
     frequencies = Counter(tokens)
     scores: dict[str, float] = {}
     for label in LABELS:
@@ -257,13 +329,13 @@ def _prediction(case: CaseInput, predictor: Mapping[str, object], config: Outcom
     normaliser = sum(probabilities.values())
     probabilities = {label: value / normaliser for label, value in probabilities.items()}
     label = max(LABELS, key=lambda candidate: (probabilities[candidate], candidate))
-    input_view = build_input_view(case.text, config.input_character_limit)
+    input_view = _view(case, config)
     return {
         "case_id": case.case_id,
         "document_id": case.document_id,
         "title": case.title,
         "origin_split": case.origin_split,
-        "input_view_id": "prefix-with-disposition-masking-v1",
+        "input_view_id": config.input_view_id,
         "input_sha256": hashlib.sha256(input_view.encode("utf-8")).hexdigest(),
         "predicted_label": label,
         "confidence": round(probabilities[label], 8),
