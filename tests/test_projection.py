@@ -168,6 +168,10 @@ class ConfigTests(unittest.TestCase):
         return path
 
 
+@unittest.skipUnless(
+    Path("data/reports/evaluation/sc2016-outcome-baseline-v1/validation-metrics.json").exists(),
+    "needs the local measured baseline report",
+)
 class RunTests(unittest.TestCase):
     def test_run_is_labelled_as_a_projection_and_stays_self_consistent(self) -> None:
         config = load_config(CONFIG_PATH)

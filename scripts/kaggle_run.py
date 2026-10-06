@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -62,8 +63,10 @@ def parse_status(text: str) -> str:
 
 
 def _kaggle(*args: str) -> str:
+    # Kernel logs contain non-ASCII text; force UTF-8 so the CLI does not fail on Windows code pages.
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     result = subprocess.run([sys.executable, "-m", "kaggle", *args], capture_output=True, text=True,
-                            encoding="utf-8", errors="replace")
+                            encoding="utf-8", errors="replace", env=env)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return result.stdout

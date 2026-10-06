@@ -410,7 +410,12 @@ def load_base_model(config: OutcomeTrainConfig, root: Path, device):
     tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    kwargs: dict[str, Any] = {"local_files_only": True, "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32}
+    import transformers
+
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    major, minor = (int(part) for part in transformers.__version__.split(".")[:2])
+    dtype_key = "dtype" if (major, minor) >= (4, 56) else "torch_dtype"  # renamed in transformers 4.56
+    kwargs: dict[str, Any] = {"local_files_only": True, dtype_key: dtype}
     if config.quantize_4bit:
         kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16,

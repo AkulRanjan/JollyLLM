@@ -199,6 +199,12 @@ if missing or outdated:
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing, *outdated], check=True)
     importlib.invalidate_caches()
 
+# peft refuses to build LoRA layers when an outdated torchao is importable (Kaggle images have shipped
+# torchao 0.10 with peft 0.20). Nothing here uses torchao, so remove it rather than pin around it.
+if importlib.util.find_spec("torchao") is not None:
+    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
+    importlib.invalidate_caches()
+
 run("-c", "import importlib.metadata as m, sys; print('python', sys.version.split()[0]); "
           + "; ".join(f"print({name!r}, m.version({name!r}))" for name in REQUIRED.values()))
 
@@ -564,7 +570,7 @@ SELFTEST = """
 # (text fp16, typed graph fp16, typed graph + PCST in 4-bit). Validation only: no test labels are read.
 import time
 
-run("-m", "unittest", "discover", "-s", "tests", "-v")
+run("-m", "unittest", "discover", "-s", "tests")
 if ON_KAGGLE:
     checkpoint_root = WORK / "checkpoints"
     if not checkpoint_root.is_symlink():

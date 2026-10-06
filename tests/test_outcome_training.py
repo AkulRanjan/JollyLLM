@@ -149,7 +149,7 @@ class TinyTrainingTests(unittest.TestCase):
         from legal_graph.outcome_examples import OutcomeExample
         from legal_graph.outcome_training import OutcomeModel
 
-        wrapper = OutcomeModel(tiny_model().eval(), CharTokenizer(), None, 200, torch.device("cpu"))
+        wrapper = OutcomeModel(tiny_model().eval(), CharTokenizer(), None, 600, torch.device("cpu"))
         example = OutcomeExample("c", "d", "validation", "Some judgment text.", "allowed", None)
         scores = wrapper.score(example, None)
         self.assertEqual(set(scores), {"allowed", "dismissed", "disposed", "partly_allowed"})
