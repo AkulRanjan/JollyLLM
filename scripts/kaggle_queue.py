@@ -38,6 +38,7 @@ def ref_for(folder: Path) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("folders", nargs="*", type=Path)
+    parser.add_argument("--folders-file", type=Path, help="text file with one kernel folder per line")
     parser.add_argument("--adopt", nargs="*", default=[], help="refs already running on Kaggle to track and pull")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--poll", type=int, default=180)
@@ -45,6 +46,8 @@ def main() -> None:
     parser.add_argument("--stop-on-error", action="store_true", help="push nothing new after any kernel errors")
     arguments = parser.parse_args()
     pending = list(arguments.folders)
+    if arguments.folders_file:
+        pending += [Path(line) for line in arguments.folders_file.read_text(encoding="utf-8").split() if line]
     running: dict[str, Path | None] = {ref: None for ref in arguments.adopt}
     attempts: dict[str, int] = {}
     halted = False
