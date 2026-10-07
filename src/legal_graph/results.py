@@ -56,6 +56,9 @@ def collect(root: Path, settings: Mapping[str, Any]) -> dict[str, Any]:
         config_path = run / "config.json"
         view = json.loads(config_path.read_text(encoding="utf-8")).get("input_view", "prefix-with-disposition-masking-v1") \
             if config_path.exists() else None
+        if experiment.startswith("diag-"):
+            excluded[experiment] = "diagnostic run (not part of the reported comparison)"
+            continue
         if experiment in settings.get("excluded_runs", {}):
             excluded[experiment] = settings["excluded_runs"][experiment]
             continue
