@@ -78,6 +78,7 @@ class OutcomeTrainConfig:
     max_grad_norm: float = 1.0
     warmup_ratio: float = 0.0
     lr_schedule: str = "constant"
+    class_weighting: str = "none"
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -134,7 +135,10 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         max_grad_norm=float(data.get("max_grad_norm", 1.0)),
         warmup_ratio=float(data.get("warmup_ratio", 0.0)),
         lr_schedule=str(data.get("lr_schedule", "constant")),
+        class_weighting=str(data.get("class_weighting", "none")),
     )
+    if config.class_weighting not in ("none", "inverse_frequency"):
+        raise ValueError("class_weighting must be none or inverse_frequency")
     if config.max_grad_norm <= 0 or not 0 <= config.warmup_ratio < 1 or config.lr_schedule not in ("constant", "linear"):
         raise ValueError("max_grad_norm must be positive, warmup_ratio in [0, 1), lr_schedule constant or linear")
     from .outcomes import INPUT_VIEWS
@@ -189,6 +193,7 @@ class OutcomeModel:
         self.eos = tokenizer.eos_token_id
         self.evidence = evidence
         self.max_evidence_tokens = max_evidence_tokens
+        self.label_weights: dict[str, float] = {}
 
     def _embed(self, ids: list[int]):
         embedding = self.lm.get_input_embeddings()
@@ -223,7 +228,8 @@ class OutcomeModel:
         answer = list(self.label_ids[example.label]) + [self.eos]
         embeds = self.torch.cat([prompt, self._embed(answer).to(prompt.dtype)], dim=1)
         labels = self.torch.tensor([[-100] * prompt.shape[1] + answer], device=self.device)
-        return self.lm(inputs_embeds=embeds, labels=labels, use_cache=False).loss
+        loss = self.lm(inputs_embeds=embeds, labels=labels, use_cache=False).loss
+        return loss * self.label_weights.get(example.label, 1.0)
 
     def score(self, example: OutcomeExample, sub: QuerySubgraph | None, *, ablate_graph: bool = False) -> dict[str, float]:
         """Total log-probability of each label continuation, sharing one prompt pass."""
@@ -375,6 +381,7 @@ def train_outcome(
         raise RuntimeError(f"trainable fraction {fraction:.4f} exceeds the {PARAMETER_CAP:.0%} cap")
 
     wrapper = OutcomeModel(lm, tokenizer, encoder, config.max_prompt_tokens, device, features)
+    wrapper.label_weights = class_weights([example.label for example in train], config.class_weighting)
     subgraphs = SubgraphBuilder(graph, config)
     coverage = {"train": subgraphs.coverage(train), "validation": subgraphs.coverage(validation)}
     groups = [{"params": [p for p in lm.parameters() if p.requires_grad], "lr": config.learning_rate}]
@@ -512,6 +519,7 @@ def train_outcome(
         "resumed": resume_state is not None,
         "nonfinite_events": nonfinite_events,
         "max_grad_norm": config.max_grad_norm,
+        "class_weights": wrapper.label_weights,
         "training_checkpoints_written": checkpoints_written,
     }
     _write_json(output / "run.manifest.json", payload)
@@ -520,6 +528,16 @@ def train_outcome(
 
 
 MAX_CONSECUTIVE_NONFINITE = 3
+
+
+def class_weights(labels, scheme: str) -> dict[str, float]:
+    """Inverse-frequency weights normalised so the mean weight over the training examples is 1."""
+    if scheme == "none":
+        return {}
+    counts = {label: labels.count(label) for label in set(labels)}
+    raw = {label: len(labels) / (len(counts) * count) for label, count in counts.items()}
+    mean = sum(raw[label] for label in labels) / len(labels)
+    return {label: value / mean for label, value in raw.items()}
 
 
 def _nonfinite(total: int, consecutive: int, where: str) -> tuple[int, int]:

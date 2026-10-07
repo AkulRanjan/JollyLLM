@@ -299,3 +299,26 @@ class NonFiniteTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 self._run(Path(directory), lambda n: n >= 3)
         self.assertIn("diverged", str(raised.exception))
+
+
+class ClassWeightTests(unittest.TestCase):
+    def test_inverse_frequency_weights_average_to_one(self) -> None:
+        from legal_graph.outcome_training import class_weights
+
+        labels = ["allowed"] * 6 + ["dismissed"] * 3 + ["partly_allowed"]
+        weights = class_weights(labels, "inverse_frequency")
+        self.assertAlmostEqual(sum(weights[label] for label in labels) / len(labels), 1.0)
+        self.assertGreater(weights["partly_allowed"], weights["dismissed"])
+        self.assertGreater(weights["dismissed"], weights["allowed"])
+        self.assertAlmostEqual(weights["partly_allowed"] / weights["allowed"], 6.0)
+
+    def test_none_means_unweighted(self) -> None:
+        from legal_graph.outcome_training import class_weights
+
+        self.assertEqual(class_weights(["allowed", "dismissed"], "none"), {})
+
+    def test_unknown_scheme_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            data = json.loads(write_workspace(Path(directory), "text").read_text(encoding="utf-8"))
+        with self.assertRaises(ValueError):
+            config_from_dict({**data, "class_weighting": "focal"})
