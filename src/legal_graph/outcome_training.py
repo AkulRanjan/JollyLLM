@@ -75,6 +75,9 @@ class OutcomeTrainConfig:
     max_evidence_tokens: int = 0
     checkpoint_every_examples: int = 0
     input_view: str = "prefix-with-disposition-masking-v1"
+    max_grad_norm: float = 1.0
+    warmup_ratio: float = 0.0
+    lr_schedule: str = "constant"
 
 
 def load_outcome_config(path: Path) -> OutcomeTrainConfig:
@@ -128,7 +131,12 @@ def config_from_dict(data: Mapping[str, Any]) -> OutcomeTrainConfig:
         max_evidence_tokens=int(data.get("evidence", {}).get("max_tokens", 0)),
         checkpoint_every_examples=int(data.get("checkpoint_every_examples", 0)),
         input_view=str(data.get("input_view", "prefix-with-disposition-masking-v1")),
+        max_grad_norm=float(data.get("max_grad_norm", 1.0)),
+        warmup_ratio=float(data.get("warmup_ratio", 0.0)),
+        lr_schedule=str(data.get("lr_schedule", "constant")),
     )
+    if config.max_grad_norm <= 0 or not 0 <= config.warmup_ratio < 1 or config.lr_schedule not in ("constant", "linear"):
+        raise ValueError("max_grad_norm must be positive, warmup_ratio in [0, 1), lr_schedule constant or linear")
     from .outcomes import INPUT_VIEWS
 
     if config.input_view not in INPUT_VIEWS:
@@ -373,6 +381,12 @@ def train_outcome(
     if encoder is not None:
         groups.append({"params": list(encoder.parameters()), "lr": config.encoder_learning_rate})
     optimiser = torch.optim.AdamW(groups)
+    updates_per_epoch = -(-len(train) // config.gradient_accumulation)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimiser, _lr_lambda(updates_per_epoch * config.epochs, config.warmup_ratio, config.lr_schedule))
+    trainable = [p for group in groups for p in group["params"]]
+    nonfinite_events, consecutive_nonfinite, finite_count = 0, 0, 0
+    finite_in_update = 0  # finite losses accumulated since the last optimiser step
 
     order_rng = random.Random(config.seed)
     best: dict[str, Any] | None = None
@@ -382,15 +396,17 @@ def train_outcome(
     checkpoints_written = 0
     if resume_state is not None:
         state = resume_state["state"]
-        _restore(resume_state["path"], lm, encoder, optimiser, device)
+        _restore(resume_state["path"], lm, encoder, optimiser, device, scheduler)
         order_rng.setstate(_tuple_state(state["order_rng"]))
         history, best = state["history"], state["best"]
         checkpoints_written = state["checkpoints_written"]
+        nonfinite_events = state.get("nonfinite_events", 0)
         by_id = {example.case_id: example for example in train}
         if state["step"] >= len(train):  # the saved point is an epoch boundary
             first_epoch = state["epoch"] + 1
         else:
             first_epoch, skip, running_carry = state["epoch"], state["step"], state["running"]
+            finite_count = state.get("finite_count", state["step"])
             resumed_order = [by_id[case_id] for case_id in state["order"]]
         print(f"resuming {config.experiment_id} at epoch {first_epoch} step {skip}", flush=True)
     else:
@@ -405,16 +421,30 @@ def train_outcome(
         else:
             order = list(train)
             order_rng.shuffle(order)
-            running, skip = 0.0, 0
+            running, skip, finite_count = 0.0, 0, 0
         for step, example in enumerate(order, start=1):
             if step <= skip:
                 continue
             loss = wrapper.loss(example, subgraphs(example))
-            (loss / config.gradient_accumulation).backward()
-            running += float(loss.detach())
+            if torch.isfinite(loss.detach()):
+                (loss / config.gradient_accumulation).backward()
+                running += float(loss.detach())
+                finite_count += 1
+                finite_in_update += 1
+            else:
+                nonfinite_events, consecutive_nonfinite = _nonfinite(nonfinite_events, consecutive_nonfinite, f"loss at epoch {epoch} step {step}")
             if step % config.gradient_accumulation == 0 or step == len(order):
-                optimiser.step()
+                grad_norm = torch.nn.utils.clip_grad_norm_(trainable, config.max_grad_norm)
+                if finite_in_update and torch.isfinite(grad_norm):
+                    optimiser.step()
+                    consecutive_nonfinite = 0
+                elif not finite_in_update:
+                    pass  # every loss in this update was non-finite and already counted; nothing to apply
+                else:
+                    nonfinite_events, consecutive_nonfinite = _nonfinite(nonfinite_events, consecutive_nonfinite, f"gradient at epoch {epoch} step {step}")
+                scheduler.step()
                 optimiser.zero_grad(set_to_none=True)
+                finite_in_update = 0
                 every = config.checkpoint_every_examples
                 if every and step % every == 0 and step < len(order):
                     checkpoints_written += 1
@@ -422,9 +452,10 @@ def train_outcome(
                         "epoch": epoch, "step": step, "running": running, "order": [e.case_id for e in order],
                         "order_rng": order_rng.getstate(), "history": history, "best": best,
                         "checkpoints_written": checkpoints_written,
-                    })
+                        "nonfinite_events": nonfinite_events, "finite_count": finite_count,
+                    }, scheduler)
             if step % 25 == 0:
-                print(f"epoch {epoch} step {step}/{len(order)} loss {running / step:.4f} "
+                print(f"epoch {epoch} step {step}/{len(order)} loss {running / max(1, finite_count):.4f} "
                       f"elapsed {time.time() - started:.0f}s", flush=True)
         lm.eval()
         if encoder is not None:
@@ -433,7 +464,7 @@ def train_outcome(
         metrics = evaluate([row["gold"] for row in predictions], [row["predicted"] for row in predictions])
         history.append({
             "epoch": epoch,
-            "train_loss": running / len(order),
+            "train_loss": running / max(1, finite_count),
             "validation_accuracy": metrics["accuracy"],
             "validation_macro_f1": metrics["macro_f1"],
             "elapsed_seconds": time.time() - started,
@@ -448,7 +479,8 @@ def train_outcome(
                 "epoch": epoch, "step": len(order), "running": running, "order": [e.case_id for e in order],
                 "order_rng": order_rng.getstate(), "history": history, "best": best,
                 "checkpoints_written": checkpoints_written,
-            })
+                "nonfinite_events": nonfinite_events, "finite_count": finite_count,
+            }, scheduler)
 
     assert best is not None
     _write_jsonl(output / "validation-predictions.jsonl", best["predictions"])
@@ -478,6 +510,8 @@ def train_outcome(
         "torch_version": torch.__version__,
         "test_labels_accessed": False,
         "resumed": resume_state is not None,
+        "nonfinite_events": nonfinite_events,
+        "max_grad_norm": config.max_grad_norm,
         "training_checkpoints_written": checkpoints_written,
     }
     _write_json(output / "run.manifest.json", payload)
@@ -485,7 +519,32 @@ def train_outcome(
     return payload
 
 
-def _write_training_checkpoint(output: Path, lm, encoder, optimiser, state: dict[str, Any]) -> None:
+MAX_CONSECUTIVE_NONFINITE = 3
+
+
+def _nonfinite(total: int, consecutive: int, where: str) -> tuple[int, int]:
+    """Count a skipped non-finite loss or gradient; stop the run instead of training on NaNs."""
+    total, consecutive = total + 1, consecutive + 1
+    print(f"non-finite {where}: update skipped ({consecutive} in a row)", flush=True)
+    if consecutive >= MAX_CONSECUTIVE_NONFINITE:
+        raise RuntimeError(f"training diverged: {consecutive} consecutive non-finite updates ({where})")
+    return total, consecutive
+
+
+def _lr_lambda(total_updates: int, warmup_ratio: float, schedule: str):
+    warmup = int(total_updates * warmup_ratio)
+
+    def factor(update: int) -> float:
+        if warmup and update < warmup:
+            return (update + 1) / warmup
+        if schedule == "linear":
+            return max(0.0, (total_updates - update) / max(1, total_updates - warmup))
+        return 1.0
+
+    return factor
+
+
+def _write_training_checkpoint(output: Path, lm, encoder, optimiser, state: dict[str, Any], scheduler=None) -> None:
     """Atomically replace output/latest-checkpoint with LoRA, encoder, optimiser, RNG and loop state."""
     import torch
     from peft import get_peft_model_state_dict
@@ -497,6 +556,8 @@ def _write_training_checkpoint(output: Path, lm, encoder, optimiser, state: dict
     if encoder is not None:
         torch.save(encoder.state_dict(), staging / "encoder.pt")
     torch.save(optimiser.state_dict(), staging / "optimizer.pt")
+    if scheduler is not None:
+        torch.save(scheduler.state_dict(), staging / "scheduler.pt")
     rng = {"torch": torch.get_rng_state()}
     if torch.cuda.is_available():
         rng["cuda"] = torch.cuda.get_rng_state_all()
@@ -524,7 +585,7 @@ def _resume_state(output: Path, config: OutcomeTrainConfig) -> dict[str, Any] | 
     return {"path": checkpoint, "state": json.loads((checkpoint / "state.json").read_text(encoding="utf-8"))}
 
 
-def _restore(checkpoint: Path, lm, encoder, optimiser, device) -> None:
+def _restore(checkpoint: Path, lm, encoder, optimiser, device, scheduler=None) -> None:
     import torch
     from peft import set_peft_model_state_dict
 
@@ -532,6 +593,8 @@ def _restore(checkpoint: Path, lm, encoder, optimiser, device) -> None:
     if encoder is not None:
         encoder.load_state_dict(torch.load(checkpoint / "encoder.pt", map_location=device))
     optimiser.load_state_dict(torch.load(checkpoint / "optimizer.pt", map_location=device))
+    if scheduler is not None and (checkpoint / "scheduler.pt").exists():
+        scheduler.load_state_dict(torch.load(checkpoint / "scheduler.pt"))
     rng = torch.load(checkpoint / "rng.pt", weights_only=False)
     torch.set_rng_state(rng["torch"])
     if "cuda" in rng and torch.cuda.is_available():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -64,6 +65,10 @@ def collect(root: Path, settings: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if required_view and view != required_view:
             excluded[experiment] = f"input view {view!r} is not the required {required_view!r}"
+            continue
+        history = json.loads((run / "run.manifest.json").read_text(encoding="utf-8")).get("history", [])
+        if any(not math.isfinite(float(entry.get("train_loss", 0.0))) for entry in history):
+            excluded[experiment] = "diverged: non-finite training loss"
             continue
     runs = {experiment: run for experiment, run in runs.items() if experiment not in excluded}
     for experiment, run in sorted(runs.items()):

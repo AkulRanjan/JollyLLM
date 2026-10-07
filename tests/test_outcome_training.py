@@ -240,3 +240,62 @@ class ResumeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             config_from_dict({**data, "gradient_accumulation": 4, "checkpoint_every_examples": 6})
         self.assertEqual(config_from_dict({**data, "gradient_accumulation": 4, "checkpoint_every_examples": 8}).checkpoint_every_examples, 8)
+
+
+class LearningRateScheduleTests(unittest.TestCase):
+    def test_constant_without_warmup_is_identity(self) -> None:
+        from legal_graph.outcome_training import _lr_lambda
+
+        factor = _lr_lambda(100, 0.0, "constant")
+        self.assertEqual([factor(0), factor(50), factor(99)], [1.0, 1.0, 1.0])
+
+    def test_warmup_then_linear_decay(self) -> None:
+        from legal_graph.outcome_training import _lr_lambda
+
+        factor = _lr_lambda(100, 0.1, "linear")
+        self.assertAlmostEqual(factor(0), 0.1)
+        self.assertAlmostEqual(factor(9), 1.0)
+        self.assertAlmostEqual(factor(10), 1.0)
+        self.assertAlmostEqual(factor(55), 0.5)
+        self.assertEqual(factor(100), 0.0)
+
+    def test_invalid_schedule_settings_are_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            data = json.loads(write_workspace(Path(directory), "text").read_text(encoding="utf-8"))
+        for bad in ({"max_grad_norm": 0}, {"warmup_ratio": 1.0}, {"lr_schedule": "cosine"}):
+            with self.assertRaises(ValueError):
+                config_from_dict({**data, **bad})
+
+
+@unittest.skipUnless(ML_STACK, "ML stack not installed")
+class NonFiniteTests(unittest.TestCase):
+    def _run(self, root: Path, nan_calls):
+        import torch
+        from legal_graph import outcome_training
+        from legal_graph.outcome_training import train_outcome
+
+        path = write_workspace(root, "text", extra_rows=TRAIN_ROWS)
+        original = outcome_training.OutcomeModel.loss
+        calls = {"n": 0}
+
+        def maybe_nan(self, example, sub):
+            calls["n"] += 1
+            loss = original(self, example, sub)
+            return loss * float("nan") if nan_calls(calls["n"]) else loss
+
+        with mock.patch.dict(os.environ, {"LEGAL_GRAPH_SKIP_PARAM_CAP": "1"}),                 mock.patch.object(outcome_training.OutcomeModel, "loss", maybe_nan):
+            return train_outcome(load_outcome_config(path), root, model=tiny_model(), tokenizer=CharTokenizer())
+
+    def test_isolated_nan_loss_is_skipped_and_counted(self) -> None:
+        import math
+
+        with TemporaryDirectory() as directory:
+            result = self._run(Path(directory), lambda n: n == 2)
+        self.assertEqual(result["nonfinite_events"], 1)
+        self.assertTrue(all(math.isfinite(h["train_loss"]) for h in result["history"]))
+
+    def test_persistent_nan_stops_the_run(self) -> None:
+        with TemporaryDirectory() as directory:
+            with self.assertRaises(RuntimeError) as raised:
+                self._run(Path(directory), lambda n: n >= 3)
+        self.assertIn("diverged", str(raised.exception))

@@ -98,3 +98,17 @@ class ExclusionTests(unittest.TestCase):
             report = collect(root, {**SETTINGS, "required_input_view": "body-prefix-masked-v2"})
         self.assertEqual([row["experiment_id"] for row in report["runs"]], ["qwen3-8b-text-v2"])
         self.assertIn("qwen3-8b-text-v1", report["excluded_runs"])
+
+
+class DivergedRunTests(unittest.TestCase):
+    def test_runs_with_nan_training_loss_are_excluded(self) -> None:
+        gold = list(LABELS) * 2
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = make_run(root, "a", "qwen3-8b-graph-untyped-g2-v2", "graph_untyped", gold, gold)
+            manifest = json.loads((run / "run.manifest.json").read_text(encoding="utf-8"))
+            manifest["history"] = [{"epoch": 1, "train_loss": float("nan")}]
+            (run / "run.manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            report = collect(root, SETTINGS)
+        self.assertEqual(report["runs"], [])
+        self.assertIn("diverged", report["excluded_runs"]["qwen3-8b-graph-untyped-g2-v2"])
