@@ -23,6 +23,24 @@ models/
 notebooks/kaggle_*.ipynb
 mlruns/
 wandb/
+tmp/
+
+# Dataset archives and model weights, wherever they land
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.parquet
+*.arrow
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+
+# Paper drafts and builds
+paper/
+papers2/
+papers3/
 
 # Local secrets and editor settings
 .env

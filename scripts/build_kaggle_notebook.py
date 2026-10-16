@@ -49,7 +49,21 @@ GRAPH_BUILDS = {
         "statute_files": ("data/graphs/india_statutes-v2/graph.json", "data/graphs/india_statutes-v2/graph.manifest.json"),
         "provisions": "data/clean/india_statutes-v2/provisions.jsonl",
     },
+    "data/graphs/judgments/sc-2016-aws-v3/graph.json": {
+        "args": ["--extractor", "v2", "--base-graph", "data/graphs/india_statutes-v2/graph.json",
+                 "--output-dir", "data/graphs/judgments/sc-2016-aws-v3",
+                 "--report-output", "data/reports/judgments/sc-2016-aws-v3/extraction-report.json",
+                 "--training-manifest", "data/clean/judgments/training.v3.manifest.json",
+                 "--corpus-output", "data/clean/judgments/sc-2016-aws/judgments.jsonl",
+                 "--graph-version", "india-statutes-sc2016-aws-0.3.0",
+                 "--aws-records", "data/raw/judgments/aws-sc/records.jsonl.gz"],
+        "training_manifest": "data/clean/judgments/training.v3.manifest.json",
+        "statute_files": ("data/graphs/india_statutes-v2/graph.json", "data/graphs/india_statutes-v2/graph.manifest.json"),
+        "provisions": "data/clean/india_statutes-v2/provisions.jsonl",
+        "aws_records": "data/raw/judgments/aws-sc/records.jsonl.gz",
+    },
 }
+AWS_SOURCE_REGISTRY = "configs/sources/aws-sc-source.json"
 
 
 def bundle_paths() -> list[Path]:
@@ -170,16 +184,22 @@ WORK = SCRATCH / "llm-graph"  # code, judgments, and model weights: not saved wi
 OUT = Path("/kaggle/working") if ON_KAGGLE else SCRATCH / "llm-graph-output"  # saved outputs
 
 
-def run(*args):
-    \"\"\"Run a Python module inside the project workspace, streaming its output.\"\"\"
+def run(*args, log=None):
+    \"\"\"Run a Python module inside the project workspace, streaming its output (and appending it to `log`).\"\"\"
     pythonpath = os.pathsep.join(filter(None, (str(WORK / "src"), os.environ.get("PYTHONPATH"))))
     env = dict(os.environ, PYTHONPATH=pythonpath, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
     process = subprocess.Popen(
         [sys.executable, *args], cwd=WORK, env=env, text=True, encoding="utf-8", errors="replace", bufsize=1,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
+    sink = open(log, "a", encoding="utf-8") if log else None
     for line in process.stdout:
         print(line, end="")
+        if sink:
+            sink.write(line)
+            sink.flush()
+    if sink:
+        sink.close()
     if process.wait() != 0:
         raise RuntimeError(f"exit code {process.returncode}: python {' '.join(args)}")
 
@@ -530,6 +550,9 @@ if previous:
         raise RuntimeError(f"more than one resumable copy of {run_name} is attached: {[str(p) for p in previous]}")
     shutil.copytree(previous[0], output_dir)
     resume_args = ["--resume"]
+    earlier_logs = sorted(Path("/kaggle/input").rglob("training-log.txt"))
+    if len(earlier_logs) == 1:  # keep one log across sessions for the figures
+        shutil.copyfile(earlier_logs[0], OUT / "training-log.txt")
     state = json.loads((output_dir / "latest-checkpoint" / "state.json").read_text(encoding="utf-8"))
     print(f"resuming from {previous[0]} at epoch {state['epoch']} step {state['step']}")
 
@@ -539,8 +562,13 @@ for relative in (TRAINING_MANIFEST_PATH, str(Path(train_config["graph_path"]).pa
     shutil.copy2(WORK / relative, lineage / Path(relative).name)
 shutil.copy2(WORK / config_path, lineage / "outcome-config.json")
 print("checkpoint every", train_config.get("checkpoint_every_examples", 0), "examples (0 = epoch-best only)")
-run("-m", "legal_graph.cli", "train-outcome", "--config", config_path, *resume_args)
-run("-m", "legal_graph.cli", "freeze-outcome", "--run", str(output_dir))
+# The step losses and validation scores are also kept in training-log.txt (text-free) for the figures cell.
+run("-m", "legal_graph.cli", "train-outcome", "--config", config_path, *resume_args, *STOP_ARGS,
+    log=OUT / "training-log.txt")
+if (output_dir / "run.manifest.json").exists():
+    run("-m", "legal_graph.cli", "freeze-outcome", "--run", str(output_dir))
+else:  # paused by the time budget: the next part attaches this output and resumes
+    print("paused, not frozen; latest-checkpoint is in this kernel's output")
 """
 
 OUTCOME_EVALUATE = """
@@ -563,7 +591,7 @@ shutil.copytree(candidates[0], output_dir)
 if not (output_dir / "freeze.json").exists():
     raise RuntimeError("the training run was not frozen; refusing to evaluate on test")
 run("-m", "legal_graph.cli", "evaluate-outcome", "--run", str(output_dir))
-if train_config["variant"] != "text":
+if train_config["variant"].startswith("graph_"):  # graph-token ablation exists for graph variants only
     run("-m", "legal_graph.cli", "evaluate-outcome", "--run", str(output_dir), "--ablate-graph")
 """
 
@@ -582,6 +610,28 @@ for name in ("run.manifest.json", "test-evaluation.json", "test-evaluation-graph
             keep["test_macro_f1"] = data["metrics"]["macro_f1"]
         print(name, json.dumps(keep, indent=2))
 print("saved under", OUT)
+"""
+
+OUTCOME_FIGURES = """
+# 9. Figures (also saved under figures/). Train: loss over training and validation per epoch. Evaluate: test
+# scores per dataset, how the score settles as cases are counted, confusion matrices and per-class F1, plus the
+# training curve when the training kernel's training-log.txt is attached.
+from IPython.display import Image, display
+
+figures_dir = OUT / "figures"
+report_args = []
+logs = [OUT / "training-log.txt"] if (OUT / "training-log.txt").exists() else (
+    sorted(Path("/kaggle/input").rglob("training-log.txt")) if ON_KAGGLE else [])
+if len(logs) == 1:
+    report_args += ["--training-log", str(logs[0]), "--name", train_config["experiment_id"]]
+if (output_dir / "test-evaluation.json").exists():
+    report_args += ["--run", str(output_dir)]
+if report_args:
+    run("-m", "legal_graph.cli", "report-outcome", "--figures", str(figures_dir), *report_args)
+    for png in sorted(figures_dir.glob("*.png")):
+        display(Image(filename=str(png)))
+else:
+    print("nothing to plot")
 """
 
 
@@ -616,12 +666,35 @@ print(f"{len(STATUTE_FILES)} statute files verified from {STATUTE_DATASET}")
 """
 
 
+AWS_DATA = """
+# 3c. AWS bucket judgments from the lg-aws-sc-extract kernel's output (attached as an input), checked against the
+# SHA-256 in the AWS source registry before ingest reads them.
+import hashlib
+
+found = sorted(Path("/kaggle/input").rglob("records.jsonl.gz")) if ON_KAGGLE else []
+matches = [path for path in found if hashlib.sha256(path.read_bytes()).hexdigest() == AWS_RECORDS_SHA256]
+if not matches:
+    raise FileNotFoundError(f"no records.jsonl.gz with SHA-256 {AWS_RECORDS_SHA256[:16]} under /kaggle/input: attach {AWS_KERNEL}")
+target = WORK / AWS_RECORDS_PATH
+target.parent.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(matches[0], target)
+print("AWS records verified:", matches[0], AWS_RECORDS_SHA256[:16])
+"""
+
+
+def aws_data_cell(build: dict, owner: str) -> str:
+    registry = json.loads((ROOT / AWS_SOURCE_REGISTRY).read_text(encoding="utf-8"))
+    (source,) = registry["sources"]
+    return (f"AWS_KERNEL = {owner + '/' + AWS_EXTRACT_SLUG!r}\nAWS_RECORDS_PATH = {build['aws_records']!r}\n"
+            f"AWS_RECORDS_SHA256 = {source['raw_sha256']!r}\n" + AWS_DATA)
+
+
 def statute_data_cell() -> str:
     hashes = {relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() for relative in STATUTE_DATA_FILES}
     return f"STATUTE_DATASET = {STATUTE_DATASET!r}\nSTATUTE_FILES = {json.dumps(hashes, indent=4)}\n" + STATUTE_DATA
 
 
-def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
+def outcome_notebook(stem: str, phase: str, owner: str = "akxran", stop_after_hours: float | None = None) -> dict[str, object]:
     config = f"configs/training/outcome/{stem}.json"
     if not (ROOT / config).is_file():
         raise SystemExit(f"unknown outcome config {config}")
@@ -642,11 +715,14 @@ def outcome_notebook(stem: str, phase: str) -> dict[str, object]:
         code(ENVIRONMENT),
         code(UNPACK),
         code(statute_data_cell()),
+        *([code(aws_data_cell(build, owner))] if "aws_records" in build else []),
         code(DATA),
         code(MODEL),
         code(INGEST),
-        code(OUTCOME_TRAIN if phase == "train" else OUTCOME_EVALUATE),
+        code(f"STOP_ARGS = {['--stop-after-hours', str(stop_after_hours)] if stop_after_hours else []!r}\n" + OUTCOME_TRAIN
+             if phase == "train" else OUTCOME_EVALUATE),
         code(OUTCOME_OUTPUTS),
+        code(OUTCOME_FIGURES),
     ]
     return _notebook(cells)
 
@@ -700,6 +776,59 @@ Path("/kaggle/working/unittest-result.txt").write_text(result.stderr, encoding="
 if result.returncode != 0:
     raise SystemExit("unit suite failed")
 """
+
+
+AWS_EXTRACT_SLUG = "lg-aws-sc-extract"
+AWS_EXTRACT_YEARS = (2013, 2014, 2015, 2017)
+AWS_PYMUPDF = "1.28.2"  # the version the local checks used; pinned so the text layer reads the same way
+
+AWS_EXTRACT = """
+# AWS bucket judgments on a CPU session (no GPU quota): download each year's metadata and English PDF archives,
+# read the PDFs' text layer, and save one gzipped JSONL file plus a summary holding every archive's SHA-256.
+import base64, hashlib, io, os, subprocess, sys, tarfile, tempfile
+from pathlib import Path
+
+payload = base64.b64decode("".join(BUNDLE_B64.split()))
+assert hashlib.sha256(payload).hexdigest() == BUNDLE_SHA256, "bundle corrupted"
+work = Path(tempfile.gettempdir()) / "llm-graph-aws"
+work.mkdir(parents=True, exist_ok=True)
+with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+    try:
+        archive.extractall(work, filter="data")
+    except TypeError:
+        archive.extractall(work)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", f"pymupdf=={PYMUPDF_VERSION}"], check=True)
+out = Path("/kaggle/working/aws-sc") if Path("/kaggle/working").is_dir() else work / "output"
+env = dict(os.environ, PYTHONPATH=str(work / "src"), PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+command = [sys.executable, "-m", "legal_graph.cli", "extract-aws-sc", "--years", *map(str, YEARS),
+           "--work-dir", str(work / "archives"), "--output", str(out / "records.jsonl.gz"),
+           "--summary-output", str(out / "summary.json")]
+process = subprocess.Popen(command, cwd=work, env=env, text=True, encoding="utf-8", errors="replace", bufsize=1,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+for line in process.stdout:
+    print(line, end="")
+if process.wait() != 0:
+    raise SystemExit(f"extract-aws-sc failed with exit code {process.returncode}")
+"""
+
+
+def aws_extract_notebook() -> dict[str, object]:
+    paths = sorted((ROOT / "src/legal_graph").glob("*.py"))
+    bundle = build_bundle(paths)
+    encoded = base64.b64encode(bundle).decode("ascii")
+    wrapped = "\n".join(encoded[start : start + 120] for start in range(0, len(encoded), 120))
+    header = (
+        f"BUNDLE_SHA256 = {hashlib.sha256(bundle).hexdigest()!r}\n"
+        f"YEARS = {list(AWS_EXTRACT_YEARS)!r}\n"
+        f"PYMUPDF_VERSION = {AWS_PYMUPDF!r}\n"
+        f'BUNDLE_B64 = """\n{wrapped}\n"""\n'
+    )
+    intro = ("# LLM Graph: AWS Supreme Court judgments, text extraction (CPU)\n\n"
+             "Public bucket `s3://indian-supreme-court-judgments` (CC-BY-4.0). Generated by "
+             "`scripts/build_kaggle_notebook.py --aws-extract`; the GPU outcome notebooks read this kernel's output.")
+    notebook = _notebook([markdown(intro), code(header, hidden=True), code(AWS_EXTRACT)])
+    notebook["metadata"]["kaggle"].update({"accelerator": "none", "isGpuEnabled": False})
+    return notebook
 
 
 def cpu_unittest_notebook() -> dict[str, object]:
@@ -762,20 +891,35 @@ def _notebook(cells: list[dict[str, object]]) -> dict[str, object]:
     return notebook
 
 
-def write_outcome_kernel(stem: str, phase: str, out_dir: Path, owner: str, train_slug: str | None = None) -> Path:
+def part_slug(stem: str, part: int) -> str:
+    """Training kernel for session `part` of a run; part N > 1 resumes from part N - 1's output."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from kaggle_run import kernel_slug
+
+    return kernel_slug(stem, "train") + (f"-part{part}" if part > 1 else "")
+
+
+def write_outcome_kernel(stem: str, phase: str, out_dir: Path, owner: str, train_slug: str | None = None,
+                         part: int = 1, stop_after_hours: float | None = None) -> Path:
     """Write <out_dir>/<notebook>.ipynb and kernel-metadata.json for a private GPU kernel."""
     sys.path.insert(0, str(ROOT / "scripts"))
     from kaggle_run import kernel_metadata, kernel_slug
 
-    slug = kernel_slug(stem, phase)
+    slug = part_slug(stem, part) if phase == "train" else kernel_slug(stem, phase)
     notebook_name = f"{slug}.ipynb"
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / notebook_name).write_text(json.dumps(outcome_notebook(stem, phase), indent=1, ensure_ascii=False) + "\n",
+    (out_dir / notebook_name).write_text(json.dumps(outcome_notebook(stem, phase, owner, stop_after_hours), indent=1, ensure_ascii=False) + "\n",
                                          encoding="utf-8", newline="\n")
     size = (out_dir / notebook_name).stat().st_size
     if size >= KAGGLE_SOURCE_LIMIT:
         raise SystemExit(f"{notebook_name} is {size:,} bytes; Kaggle rejects kernel sources of 1 MB or more")
-    sources = [f"{owner}/{train_slug or kernel_slug(stem, 'train')}"] if phase == "evaluate" else []
+    if phase == "evaluate":
+        sources = [f"{owner}/{train_slug or part_slug(stem, part)}"]
+    else:
+        sources = [f"{owner}/{part_slug(stem, part - 1)}"] if part > 1 else []
+    graph_path = json.loads((ROOT / f"configs/training/outcome/{stem}.json").read_text(encoding="utf-8"))["graph_path"]
+    if "aws_records" in GRAPH_BUILDS[graph_path]:
+        sources.append(f"{owner}/{AWS_EXTRACT_SLUG}")
     metadata = kernel_metadata(f"{owner}/{slug}", slug, notebook_name, kernel_sources=sources,
                                dataset_sources=[STATUTE_DATASET])
     (out_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -789,10 +933,27 @@ def main() -> None:
     parser.add_argument("--outcome", help="outcome config stem under configs/training/outcome")
     parser.add_argument("--selftest", action="store_true", help="write the GPU self-test kernel")
     parser.add_argument("--phase", choices=("train", "evaluate"), default="train")
+    parser.add_argument("--part", type=int, default=1,
+                        help="train: session number (N > 1 resumes from part N - 1); evaluate: the part that finished")
+    parser.add_argument("--stop-after-hours", type=float, help="train: pause resumably after this much training")
     parser.add_argument("--out", type=Path, help="kernel folder (default kaggle/<slug>)")
     parser.add_argument("--owner", default="akxran")
     parser.add_argument("--unittest-cpu", action="store_true", help="write the CPU-only unit-suite kernel")
+    parser.add_argument("--aws-extract", action="store_true", help="write the CPU kernel that extracts AWS judgments")
     arguments = parser.parse_args()
+    if arguments.aws_extract:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from kaggle_run import kernel_metadata
+
+        out_dir = arguments.out or ROOT / "kaggle" / AWS_EXTRACT_SLUG
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{AWS_EXTRACT_SLUG}.ipynb").write_text(
+            json.dumps(aws_extract_notebook(), indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+        metadata = kernel_metadata(f"{arguments.owner}/{AWS_EXTRACT_SLUG}", AWS_EXTRACT_SLUG, f"{AWS_EXTRACT_SLUG}.ipynb",
+                                   gpu=False, internet=True)
+        (out_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"kernel_folder": str(out_dir)}, indent=2))
+        return
     if arguments.unittest_cpu:
         sys.path.insert(0, str(ROOT / "scripts"))
         from kaggle_run import kernel_metadata
@@ -823,8 +984,10 @@ def main() -> None:
         sys.path.insert(0, str(ROOT / "scripts"))
         from kaggle_run import kernel_slug
 
-        out_dir = arguments.out or ROOT / "kaggle" / kernel_slug(arguments.outcome, arguments.phase)
-        folder = write_outcome_kernel(arguments.outcome, arguments.phase, out_dir, arguments.owner)
+        slug = part_slug(arguments.outcome, arguments.part) if arguments.phase == "train" else kernel_slug(arguments.outcome, arguments.phase)
+        out_dir = arguments.out or ROOT / "kaggle" / slug
+        folder = write_outcome_kernel(arguments.outcome, arguments.phase, out_dir, arguments.owner,
+                                      part=arguments.part, stop_after_hours=arguments.stop_after_hours)
         print(json.dumps({"kernel_folder": str(folder), "files": sorted(p.name for p in folder.iterdir())}, indent=2))
         return
     paths = bundle_paths()
