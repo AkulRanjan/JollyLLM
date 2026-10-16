@@ -1,0 +1,22 @@
+{
+  "registry_version": "1.0.0",
+  "sources": [
+    {
+      "source_id": "source:aws:indian-supreme-court-judgments:c685fc978ff18a47",
+      "display_name": "Indian Supreme Court Judgments (AWS Open Data), decision years 2013-2015 and 2017, English PDF text layer",
+      "source_locator": "s3://indian-supreme-court-judgments (public, no account); text extracted by Kaggle kernel akxran/lg-aws-sc-extract",
+      "acquired_on": "2026-10-11",
+      "raw_sha256": "c685fc978ff18a4700f1eb01148f1d390d2fa1492435e868425f2097206484a7",
+      "license_label": "CC-BY-4.0",
+      "status": "approved",
+      "permitted_uses": [
+        "development",
+        "evaluation",
+        "local-model-training",
+        "testing"
+      ],
+      "redistribution_allowed": true,
+      "notes": "Hash covers records.jsonl.gz written by legal_graph.aws_judgments.extract_aws_years (pymupdf 1.28.2). The bucket is updated bi-monthly, so the archives are pinned here by hash: data/tar/year=2013/english/english.tar sha256 9edd315af308b0333fc54b2e3fec76fed36eb871f0a20f299bcd51633735d498; data/tar/year=2014/english/english.tar sha256 1976357073b2023dde06b1f5d1008c2614fc4580c1c7b38e8e0de4da66f5d77c; data/tar/year=2015/english/english.tar sha256 843b6415a0da15edfa1bf2c7b53db6e76a8b473c131bb8f78232e9fe744b3fb9; data/tar/year=2017/english/english.tar sha256 cd8f1ed2c4abc611954bc05eecef40672270d7904ac7db01a8181f9f437be2cf; metadata/tar/year=2013/metadata.tar sha256 6c60d1494c1a09c6f10a698757c74eacc301ef85d98ae8e7fe4bf19aa61e5fff; metadata/tar/year=2014/metadata.tar sha256 44d9bddb6f22790d543f826fda15481c93a1f602c7ba999ad3c4a31254548e81; metadata/tar/year=2015/metadata.tar sha256 cd1c967eaeec9038d58dfa7a2bf58a167033b156e8a11c2cb02d670b74a3bda1; metadata/tar/year=2017/metadata.tar sha256 798e14700f9b87a920b5aeb7d86274794d9bfde0895499e65fe53dacac05e1ac"
+    }
+  ]
+}
