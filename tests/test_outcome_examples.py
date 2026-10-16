@@ -98,3 +98,27 @@ class AsOfDateTests(unittest.TestCase):
             train = {e.case_id: e for e in load_outcome_examples(corpus, manifest, "train", 6000)}
         self.assertEqual(str(train["c9"].as_of), "2016-01-01")
         self.assertIsNone(train["c1"].year)
+
+
+class SourceTests(unittest.TestCase):
+    def test_loader_records_the_source_dataset(self) -> None:
+        with TemporaryDirectory() as directory:
+            corpus, manifest = _write(Path(directory), ({
+                "case_id": "c8", "document_id": "d8", "origin_split": "test", "decision_date": "2017-05-02",
+                "attributes": {"dataset": "aws:indian-supreme-court-judgments", "year": "2017"},
+                "text": BODY + "The appeal is allowed."},))
+            test = {e.case_id: e for e in load_outcome_examples(corpus, manifest, "test", 6000, allow_test_labels=True)}
+        self.assertEqual(test["c8"].source, "aws:indian-supreme-court-judgments")
+        self.assertEqual(test["c3"].source, "")
+
+    def test_metrics_split_by_source_only_when_pooled(self) -> None:
+        from legal_graph.outcome_eval import metrics_by_source
+
+        rows = [{"case_id": "a", "gold": "allowed", "predicted": "allowed"},
+                {"case_id": "b", "gold": "dismissed", "predicted": "allowed"},
+                {"case_id": "c", "gold": "dismissed", "predicted": "dismissed"}]
+        self.assertEqual(metrics_by_source(rows, {"a": "x", "b": "x", "c": "x"}), {})
+        split = metrics_by_source(rows, {"a": "sc", "b": "aws", "c": "aws"})
+        self.assertEqual(sorted(split), ["aws", "sc"])
+        self.assertEqual(split["sc"]["accuracy"], 1.0)
+        self.assertEqual(split["aws"]["accuracy"], 0.5)
