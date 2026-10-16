@@ -211,6 +211,22 @@ class ResumeTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer(), resume=True)
 
+    def test_time_budget_pauses_and_resumes_to_the_same_result(self) -> None:
+        from legal_graph.outcome_training import train_outcome
+
+        with TemporaryDirectory() as first_dir, TemporaryDirectory() as second_dir, \
+                mock.patch.dict(os.environ, {"LEGAL_GRAPH_SKIP_PARAM_CAP": "1"}):
+            first, second = Path(first_dir), Path(second_dir)
+            reference = train_outcome(self._config(first), first, model=tiny_model(), tokenizer=CharTokenizer())
+            config = self._config(second)
+            paused = train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer(), stop_after_seconds=0)
+            self.assertEqual((paused["status"], paused["epoch"], paused["step"]), ("paused", 1, 1))
+            self.assertFalse((second / "run" / "run.manifest.json").exists())
+            resumed = train_outcome(config, second, model=tiny_model(), tokenizer=CharTokenizer(), resume=True)
+            self.assertEqual(resumed["history"], [dict(row, elapsed_seconds=resumed["history"][i]["elapsed_seconds"])
+                                                  for i, row in enumerate(reference["history"])])
+            self.assertEqual(resumed["validation_metrics"], reference["validation_metrics"])
+
     def test_resume_refuses_a_changed_config(self) -> None:
         from dataclasses import replace
         from legal_graph import outcome_training
