@@ -13,6 +13,20 @@ def _hashes(run_dir: Path) -> dict[str, str]:
     return {str(path.relative_to(run_dir)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
 
 
+def metrics_by_source(rows: list[dict], sources: dict[str, str]) -> dict[str, dict]:
+    """Per-dataset metrics when the test split pools several sources (SC-2016 and the AWS later years); else {}."""
+    from .outcomes import evaluate
+
+    names = sorted({sources[row["case_id"]] for row in rows})
+    if len(names) < 2:
+        return {}
+    return {
+        name: evaluate([row["gold"] for row in rows if sources[row["case_id"]] == name],
+                       [row["predicted"] for row in rows if sources[row["case_id"]] == name])
+        for name in names
+    }
+
+
 def freeze_run(run_dir: Path) -> dict:
     run_dir = Path(run_dir)
     target = run_dir / "freeze.json"
@@ -82,8 +96,15 @@ def evaluate_frozen(
                                      config.input_character_limit, allow_test_labels=True, input_view_id=config.input_view)
     if not examples:
         raise ValueError("no labelled test examples")
-    rows = score_examples(wrapper, examples, SubgraphBuilder(graph, config), ablate_graph=ablate_graph)
+    print(f"scoring {len(examples)} test cases once{' with the graph tokens removed' if ablate_graph else ''}", flush=True)
+    rows = score_examples(wrapper, examples, SubgraphBuilder(graph, config), ablate_graph=ablate_graph,
+                          progress_every=25, progress_label="test (graph removed)" if ablate_graph else "test")
     metrics = evaluate([row["gold"] for row in rows], [row["predicted"] for row in rows])
+    sources = {example.case_id: example.source for example in examples}
+    by_source = metrics_by_source(rows, sources)
+    if by_source:
+        for row in rows:
+            row["source"] = sources[row["case_id"]]
     (run_dir / f"test-predictions{suffix}.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
     payload = {
@@ -94,6 +115,7 @@ def evaluate_frozen(
         "ablate_graph": ablate_graph,
         "freeze_verified": True,
         "metrics": metrics,
+        **({"metrics_by_source": by_source} if by_source else {}),
     }
     result_path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     return payload

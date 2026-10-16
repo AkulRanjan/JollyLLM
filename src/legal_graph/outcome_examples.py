@@ -23,6 +23,7 @@ class OutcomeExample:
     label: str | None
     decision_date: date | None
     year: int | None = None
+    source: str = ""  # the dataset the case came from, e.g. SC-2016 or the AWS bucket
 
     @property
     def as_of(self) -> date | None:
@@ -82,6 +83,7 @@ def load_outcome_examples(
                     label=None if hide else label,
                     decision_date=date.fromisoformat(raw_date) if raw_date else None,
                     year=int(raw_year) if raw_year.isdigit() else None,
+                    source=str((row.get("attributes") or {}).get("dataset", "")),
                 )
             )
     return tuple(examples)
