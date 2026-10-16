@@ -310,8 +310,13 @@ def build_training_manifest(
     *,
     corpus_sha256: str,
     graph_content_sha256: str,
+    extra_sources: list[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
-    """Describe split-safe local judgment supervision without embedding legal text."""
+    """Describe split-safe local judgment supervision without embedding legal text.
+
+    ``extra_sources`` describes judgments added beside SC-2016 (and their own split rule); without it the
+    manifest is exactly the SC-2016-only one, so earlier builds keep their hashes.
+    """
 
     split_counts = {
         split.value: sum(record.origin_split is split for record in ingestion.judgments)
@@ -334,6 +339,9 @@ def build_training_manifest(
         "held_out_splits": [Split.TEST.value],
         "split_strategy": "sha256-prefix-modulo-10-v1",
     }
+    if extra_sources:
+        payload["artifact_version"] = "sc2016-aws-training-0.3.0"
+        payload["extra_sources"] = [dict(sorted(source.items())) for source in extra_sources]
     payload["content_sha256"] = sha256_payload(payload)
     return payload
 
@@ -344,6 +352,7 @@ def write_training_manifest(
     *,
     corpus_sha256: str,
     graph_content_sha256: str,
+    extra_sources: list[Mapping[str, object]] | None = None,
 ) -> tuple[Path, str]:
     """Write the local supervision lineage manifest required by model preflight."""
 
@@ -351,6 +360,7 @@ def write_training_manifest(
         ingestion,
         corpus_sha256=corpus_sha256,
         graph_content_sha256=graph_content_sha256,
+        extra_sources=extra_sources,
     )
     content = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")) + "\n"
     output_path.parent.mkdir(parents=True, exist_ok=True)

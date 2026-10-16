@@ -166,6 +166,19 @@ def main() -> None:
         default=Path("data/clean/judgments/training.manifest.json"),
         help="local split-safe training supervision manifest",
     )
+    judgment_parser.add_argument("--aws-records", type=Path,
+                                 help="also ingest AWS bucket judgments from this extract-aws-sc records file")
+    judgment_parser.add_argument("--aws-source-registry", type=Path, default=Path("configs/sources/aws-sc-source.json"))
+    judgment_parser.add_argument("--aws-train-years", type=int, nargs="+", default=[2013, 2014, 2015])
+    judgment_parser.add_argument("--aws-test-years", type=int, nargs="+", default=[2017])
+    judgment_parser.add_argument("--aws-report-output", type=Path,
+                                 default=Path("data/reports/judgments/aws-sc/selection-report.json"))
+
+    aws_parser = subcommands.add_parser("extract-aws-sc", help="download and extract AWS bucket judgments for some years")
+    aws_parser.add_argument("--years", type=int, nargs="+", required=True)
+    aws_parser.add_argument("--work-dir", type=Path, required=True, help="scratch space for one archive at a time")
+    aws_parser.add_argument("--output", type=Path, required=True, help="gzipped JSONL records")
+    aws_parser.add_argument("--summary-output", type=Path, required=True)
 
     dapt_parser = subcommands.add_parser(
         "train-dapt",
@@ -203,6 +216,8 @@ def main() -> None:
     train_outcome_parser = subcommands.add_parser("train-outcome", help="train a text or graph-augmented outcome model")
     train_outcome_parser.add_argument("--config", type=Path, required=True)
     train_outcome_parser.add_argument("--resume", action="store_true", help="continue from latest-checkpoint")
+    train_outcome_parser.add_argument("--stop-after-hours", type=float,
+                                      help="pause with a resumable checkpoint once this much training time has passed")
     freeze_parser = subcommands.add_parser("freeze-outcome", help="freeze a trained outcome run before test evaluation")
     freeze_parser.add_argument("--run", type=Path, required=True)
     evaluate_parser = subcommands.add_parser("evaluate-outcome", help="evaluate a frozen run once on the test split")
@@ -213,6 +228,13 @@ def main() -> None:
     compare_parser.add_argument("--run-b", type=Path, required=True)
     compare_parser.add_argument("--metric", default="macro_f1", choices=("macro_f1", "accuracy"))
     compare_parser.add_argument("--resamples", type=int, default=10000)
+    compare_parser.add_argument("--source", help="compare only the test cases from this dataset (e.g. aws:indian-supreme-court-judgments)")
+    report_parser = subcommands.add_parser("report-outcome", help="tables and figures for an evaluated run or a training log")
+    report_parser.add_argument("--figures", type=Path, required=True, help="directory for the PNG figures")
+    report_parser.add_argument("--run", type=Path, help="evaluated run directory (reads test-evaluation*.json)")
+    report_parser.add_argument("--training-log", type=Path, action="append", default=[],
+                               help="training log (Kaggle download or live capture); repeat to overlay several runs")
+    report_parser.add_argument("--name", help="figure name for a single --training-log (default: the log's stem)")
     collect_parser = subcommands.add_parser("collect-outcomes", help="aggregate measured runs against controls and the forecast")
     collect_parser.add_argument("--config", type=Path, default=Path("configs/evaluation/sc2016-measured-vs-projected.json"))
 
@@ -319,6 +341,13 @@ def main() -> None:
             workspace_root=Path.cwd(),
         )
         _print(result_to_dict(result))
+    elif arguments.command == "extract-aws-sc":
+        from .aws_judgments import extract_aws_years
+
+        summary = extract_aws_years(arguments.years, arguments.work_dir, arguments.output)
+        arguments.summary_output.parent.mkdir(parents=True, exist_ok=True)
+        arguments.summary_output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _print({key: summary[key] for key in ("records_sha256", "record_count", "counts_by_year")})
     elif arguments.command == "ingest-sc2016":
         source = load_source_record(arguments.source_registry, arguments.source_id)
         ingestion = ingest_sc2016_directory(
@@ -326,6 +355,9 @@ def main() -> None:
             source_id=source.source_id,
             expected_source_sha256=source.raw_sha256,
         )
+        aws_extra: dict[str, object] = {}
+        if arguments.aws_records:
+            ingestion, aws_extra = _with_aws_records(ingestion, arguments)
         base_payload = json.loads(arguments.base_graph.read_text(encoding="utf-8"))
         base_graph = graph_from_dict(base_payload)
         assembly = build_judgment_graph(
@@ -350,11 +382,14 @@ def main() -> None:
                 "base_graph_sha256": base_graph_sha256,
                 "split_strategy": "sha256-prefix-modulo-10-v1",
                 **({"extractor": "indian_regex_v2"} if arguments.extractor == "v2" else {}),
+                **({f"aws_{key}": aws_extra[key] for key in ("source_id", "source_sha256", "split_strategy")}
+                   if aws_extra else {}),
             },
             parents=(
                 source.source_id,
                 f"source:sha256:{ingestion.source_sha256}",
                 f"graph:sha256:{base_graph_sha256}",
+                *((str(aws_extra["source_id"]), f"source:sha256:{aws_extra['source_sha256']}") if aws_extra else ()),
             ),
             storage_uri=f"local://{arguments.output_dir.as_posix()}",
             status="validated",
@@ -365,6 +400,7 @@ def main() -> None:
             arguments.training_manifest,
             corpus_sha256=corpus_sha256,
             graph_content_sha256=manifest.content_sha256,
+            extra_sources=[aws_extra] if aws_extra else None,
         )
         decision_dates = sum(record.decision_date is not None for record in ingestion.judgments)
         split_counts = {
@@ -390,6 +426,7 @@ def main() -> None:
                 "training_manifest_path": str(training_manifest_path),
                 "training_manifest_sha256": training_manifest_sha256,
                 "resolution_summary": assembly.resolution_counts,
+                **({"aws_selection": aws_extra} if aws_extra else {}),
             }
         )
     elif arguments.command == "train-dapt":
@@ -404,7 +441,9 @@ def main() -> None:
     elif arguments.command == "train-outcome":
         from .outcome_training import load_outcome_config as load_model_config, train_outcome
 
-        _print(train_outcome(load_model_config(arguments.config), Path.cwd(), resume=arguments.resume))
+        stop = arguments.stop_after_hours * 3600 if arguments.stop_after_hours else None
+        _print(train_outcome(load_model_config(arguments.config), Path.cwd(), resume=arguments.resume,
+                             stop_after_seconds=stop))
     elif arguments.command == "freeze-outcome":
         from .outcome_eval import freeze_run
 
@@ -413,12 +452,26 @@ def main() -> None:
         from .outcome_eval import evaluate_frozen
 
         _print(evaluate_frozen(arguments.run, Path.cwd(), ablate_graph=arguments.ablate_graph))
+    elif arguments.command == "report-outcome":
+        from .eval_report import render_evaluation, render_training_comparison, render_training_curve
+
+        if not arguments.run and not arguments.training_log:
+            parser.error("report-outcome needs --run, --training-log, or both")
+        logs = {(arguments.name if arguments.name and len(arguments.training_log) == 1 else log.stem): log
+                for log in arguments.training_log}
+        reports = [render_training_curve(log, arguments.figures, name) for name, log in logs.items()]
+        if len(logs) > 1:
+            reports.append(render_training_comparison(logs, arguments.figures))
+        if arguments.run:
+            reports.append(render_evaluation(arguments.run, arguments.figures))
+        print("\n".join(line for report in reports for line in report["lines"]), flush=True)
+        _print({"figures": [path for report in reports for path in report["figures"]]})
     elif arguments.command == "collect-outcomes":
         from .results import write_report
 
         _print(write_report(Path.cwd(), arguments.config))
     elif arguments.command == "compare-outcomes":
-        _print(_compare_runs(arguments.run_a, arguments.run_b, arguments.metric, arguments.resamples))
+        _print(_compare_runs(arguments.run_a, arguments.run_b, arguments.metric, arguments.resamples, arguments.source))
     else:
         index = load_bm25_index(arguments.index)
         results = search_bm25(index, arguments.query, limit=arguments.limit)
@@ -440,17 +493,50 @@ def main() -> None:
         )
 
 
-def _compare_runs(run_a: Path, run_b: Path, metric: str, resamples: int) -> dict[str, object]:
+def _with_aws_records(ingestion, arguments) -> tuple[object, dict[str, object]]:
+    """SC-2016 plus the AWS bucket judgments chosen by decision year; SC-2016's own splits are untouched."""
+    import re
+    from dataclasses import replace
+
+    from .aws_judgments import select_aws_records
+
+    registry = json.loads(arguments.aws_source_registry.read_text(encoding="utf-8"))
+    (source_id,) = [item["source_id"] for item in registry["sources"]]
+    source = load_source_record(arguments.aws_source_registry, source_id)
+    sc2016_paths = [re.sub(r"-en$", "", record.markdown_path.stem).replace("-", "_") for record in ingestion.judgments]
+    records, report = select_aws_records(
+        arguments.aws_records, source_id=source.source_id, expected_sha256=source.raw_sha256,
+        train_years=arguments.aws_train_years, test_years=arguments.aws_test_years, exclude_paths=sc2016_paths,
+    )
+    arguments.aws_report_output.parent.mkdir(parents=True, exist_ok=True)
+    arguments.aws_report_output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if {record.case_id for record in records} & {record.case_id for record in ingestion.judgments}:
+        raise ValueError("AWS and SC-2016 case IDs collide")
+    merged = replace(ingestion, judgments=tuple(sorted(ingestion.judgments + records, key=lambda record: record.case_id)))
+    strategy = (f"decision-year: {'/'.join(map(str, sorted(arguments.aws_train_years)))} train, "
+                f"{'/'.join(map(str, sorted(arguments.aws_test_years)))} test; official disposal agreeing with the text rule")
+    return merged, {
+        "source_id": source.source_id,
+        "source_sha256": report["source_sha256"],
+        "split_strategy": strategy,
+        "document_count": len(records),
+        "split_counts": report["kept"],
+    }
+
+
+def _compare_runs(run_a: Path, run_b: Path, metric: str, resamples: int, source: str | None = None) -> dict[str, object]:
     from .comparison import paired_bootstrap
 
     def rows(run: Path) -> dict[str, dict]:
         lines = (run / "test-predictions.jsonl").read_text(encoding="utf-8").splitlines()
-        return {row["case_id"]: row for row in map(json.loads, lines) if row}
+        return {row["case_id"]: row for row in map(json.loads, lines) if row and (source is None or row.get("source") == source)}
 
     first, second = rows(run_a), rows(run_b)
     if sorted(first) != sorted(second):
         raise SystemExit("runs were evaluated on different case sets")
     ids = sorted(first)
+    if not ids:
+        raise SystemExit(f"no test predictions{f' from {source}' if source else ''}")
     if any(first[case]["gold"] != second[case]["gold"] for case in ids):
         raise SystemExit("runs disagree on gold labels")
     result = paired_bootstrap(
@@ -460,7 +546,7 @@ def _compare_runs(run_a: Path, run_b: Path, metric: str, resamples: int) -> dict
         metric=metric,
         resamples=resamples,
     )
-    return {"run_a": str(run_a), "run_b": str(run_b), **result}
+    return {"run_a": str(run_a), "run_b": str(run_b), "source": source, "cases": len(ids), **result}
 
 
 def _print(payload: dict[str, object]) -> None:
