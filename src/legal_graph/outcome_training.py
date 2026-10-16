@@ -324,11 +324,20 @@ def build_evidence(config: OutcomeTrainConfig, root: Path):
     return Bm25Evidence(root / config.provisions_path, config.bm25_top_k)
 
 
-def score_examples(wrapper: OutcomeModel, examples, subgraphs: SubgraphBuilder, *, ablate_graph: bool = False) -> list[dict]:
+def score_examples(
+    wrapper: OutcomeModel, examples, subgraphs: SubgraphBuilder, *, ablate_graph: bool = False,
+    progress_every: int = 0, progress_label: str = "scored",
+) -> list[dict]:
+    """Score each example; with progress_every, print a live line (time left, score so far) every n cases."""
+    from .eval_report import progress_line
+
     rows = []
+    started = time.time()
     for example in examples:
         scores = wrapper.score(example, subgraphs(example), ablate_graph=ablate_graph)
         rows.append({"case_id": example.case_id, "gold": example.label, "predicted": pick_label(scores), "scores": scores})
+        if progress_every and (len(rows) % progress_every == 0 or len(rows) == len(examples)):
+            print(progress_line(rows, len(examples), time.time() - started, progress_label), flush=True)
     return rows
 
 
@@ -337,7 +346,9 @@ CHECKPOINT_DIR = "latest-checkpoint"
 
 def train_outcome(
     config: OutcomeTrainConfig, workspace_root: Path, *, model=None, tokenizer=None, resume: bool = False,
+    stop_after_seconds: float | None = None,
 ) -> dict[str, Any]:
+    """Train, or with stop_after_seconds pause at the first update past that budget (resume later with resume=True)."""
     import torch
 
     root = Path(workspace_root)
@@ -453,7 +464,9 @@ def train_outcome(
                 optimiser.zero_grad(set_to_none=True)
                 finite_in_update = 0
                 every = config.checkpoint_every_examples
-                if every and step % every == 0 and step < len(order):
+                pause = (stop_after_seconds is not None and step < len(order)
+                         and time.time() - started >= stop_after_seconds)
+                if (every and step % every == 0 and step < len(order)) or pause:
                     checkpoints_written += 1
                     _write_training_checkpoint(output, lm, encoder, optimiser, {
                         "epoch": epoch, "step": step, "running": running, "order": [e.case_id for e in order],
@@ -461,6 +474,11 @@ def train_outcome(
                         "checkpoints_written": checkpoints_written,
                         "nonfinite_events": nonfinite_events, "finite_count": finite_count,
                     }, scheduler)
+                if pause:
+                    print(f"pausing {config.experiment_id} at epoch {epoch} step {step} after "
+                          f"{time.time() - started:.0f}s; continue with --resume", flush=True)
+                    return {"status": "paused", "experiment_id": config.experiment_id, "epoch": epoch, "step": step,
+                            "steps_per_epoch": len(order), "epochs": config.epochs}
             if step % 25 == 0:
                 print(f"epoch {epoch} step {step}/{len(order)} loss {running / max(1, finite_count):.4f} "
                       f"elapsed {time.time() - started:.0f}s", flush=True)

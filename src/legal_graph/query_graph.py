@@ -8,17 +8,19 @@ own case node, whose edges were extracted from the full judgment text.
 from __future__ import annotations
 
 import random
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 
 from .extraction import EXTRACTORS, resolve_candidates
-from .models import GraphSnapshot, RelationType, RetrievalConfig, RetrievalRequest, Split
+from .models import EdgeRecord, GraphSnapshot, NodeType, RelationType, RetrievalConfig, RetrievalRequest, Split
 from .retrieval import _edge_is_eligible, _node_is_eligible, retrieve_subgraph
 
 RELATIONS: tuple[RelationType, ...] = tuple(RelationType)
 NUM_RELATION_TYPES = 2 * len(RELATIONS)
-SELECTORS = ("expansion", "pcst", "random")
+SELECTORS = ("expansion", "pcst", "random", "cocitation")
 _ALLOWED = frozenset({Split.TRAIN})
+_STATUTE_TYPES = frozenset({NodeType.PROVISION, NodeType.ACT})
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +65,8 @@ def build_query_subgraph(
         for seed in view_seed_node_ids(view_text, document_id, view, extractor)
         if seed in nodes and _node_is_eligible(nodes[seed], as_of_date)
     )
+    if selector == "cocitation":
+        seeds = tuple(seed for seed in seeds if nodes[seed].node_type in _STATUTE_TYPES)
     if not seeds:
         return QuerySubgraph(query_id, (), (), (), "empty")
     request = RetrievalRequest(
@@ -73,6 +77,8 @@ def build_query_subgraph(
         allowed_origin_splits=_ALLOWED,
     )
     eligible_edges = tuple(edge for edge in view.edges if _edge_is_eligible(edge, nodes, request))
+    if selector == "cocitation":
+        return _cocitation(query_id, seeds, eligible_edges, config.node_budget)
     selected = _expand(view, request, config, seeds)
     if selector == "pcst":
         from .pcst import select_pcst
@@ -88,6 +94,40 @@ def build_query_subgraph(
             triples.add((index[edge.source_id], index[edge.target_id], relation))
             triples.add((index[edge.target_id], index[edge.source_id], relation + len(RELATIONS)))
     return QuerySubgraph(query_id, tuple(selected), tuple(sorted(triples)), seeds, "ok" if selected else "empty")
+
+
+def _cocitation(query_id: str, seeds: tuple[str, ...], eligible_edges: tuple[EdgeRecord, ...], budget: int) -> QuerySubgraph:
+    """Statute-only subgraph: case nodes are collapsed into co-citation links between statute nodes.
+
+    Candidates are statute nodes that an eligible training case cites together with a seed. They are ranked by
+    how many seeds they share a case with, then by how many such cases there are. Two selected nodes are linked
+    (co_occurs_with) when an eligible training case cites both. No case node, title or outcome enters the subgraph.
+    """
+    cited: dict[str, set[str]] = defaultdict(set)
+    for edge in eligible_edges:
+        if edge.relation_type is RelationType.REFERS_TO_PROVISION:
+            cited[edge.source_id].add(edge.target_id)
+    seed_set = set(seeds)
+    shared_seeds: dict[str, set[str]] = defaultdict(set)
+    support: Counter[str] = Counter()
+    for targets in cited.values():
+        anchors = targets & seed_set
+        if anchors:
+            for target in targets - seed_set:
+                shared_seeds[target] |= anchors
+                support[target] += 1
+    ranked = sorted(shared_seeds, key=lambda node_id: (-len(shared_seeds[node_id]), -support[node_id], node_id))
+    selected = list(seeds[:budget]) + ranked[: max(0, budget - len(seeds))]
+    index = {node_id: position for position, node_id in enumerate(selected)}
+    relation = RELATIONS.index(RelationType.CO_OCCURS_WITH)
+    triples: set[tuple[int, int, int]] = set()
+    for targets in cited.values():
+        members = sorted(index[target] for target in targets if target in index)
+        for position, first in enumerate(members):
+            for second in members[position + 1 :]:
+                triples.add((first, second, relation))
+                triples.add((second, first, relation))
+    return QuerySubgraph(query_id, tuple(selected), tuple(sorted(triples)), seeds, "ok")
 
 
 def _without(graph: GraphSnapshot, excluded: frozenset[str]) -> GraphSnapshot:
