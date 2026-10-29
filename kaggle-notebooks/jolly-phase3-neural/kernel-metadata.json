@@ -1,0 +1,18 @@
+{
+  "id": "vanshag08/jolly-phase3-neural",
+  "title": "jolly-phase3-neural",
+  "code_file": "jolly-phase3-neural.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [],
+  "kernel_sources": [
+    "vanshag08/jolly-aws-extract"
+  ],
+  "competition_sources": [],
+  "model_sources": []
+}
