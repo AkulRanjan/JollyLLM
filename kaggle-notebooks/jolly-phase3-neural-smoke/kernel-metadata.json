@@ -1,0 +1,18 @@
+{
+  "id": "vanshag08/jolly-phase3-neural-smoke",
+  "title": "jolly-phase3-neural-smoke",
+  "code_file": "jolly-phase3-neural-smoke.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "None",
+  "dataset_sources": [],
+  "kernel_sources": [
+    "vanshag08/jolly-aws-extract"
+  ],
+  "competition_sources": [],
+  "model_sources": []
+}

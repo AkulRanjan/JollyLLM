@@ -1,0 +1,228 @@
+{
+  "environment": {
+    "torch": "2.10.0+cpu",
+    "threads": 16,
+    "cpu_count": 22,
+    "note": "CPU only, no GPU; timings are single-process wall clock after warm-up."
+  },
+  "statute_corpus": {
+    "acts": [
+      "ipc",
+      "iea",
+      "constitution"
+    ],
+    "provisions": 1222,
+    "sha256": "facbd8c5c61bbd49de82dbf66d3049d1d45743b5e0d35987c4a46aaecf036544",
+    "note": "the paper's layer has 2,619 provisions over six acts; this subset is smaller"
+  },
+  "cases": {
+    "train_window": [
+      2013,
+      2014
+    ],
+    "train_cases": 1430,
+    "query_year": 2015,
+    "queries": 683
+  },
+  "graph_index": {
+    "nodes": 2936,
+    "provision_nodes": 1506,
+    "case_nodes": 1430,
+    "edges": 5419,
+    "build_seconds_including_extraction": 62.17,
+    "python_peak_mb": 10.8,
+    "pickle_mb": 1.216,
+    "edge_list_gzip_kb": 26.8,
+    "csr_incidence_npz_kb": 10.1,
+    "note": "built from 2013-2014 training judgments only; the paper's graph also holds 2015 and SC-2016 judgments"
+  },
+  "graph_retrieval": {
+    "n": 683,
+    "mean_ms": 10.919,
+    "median_ms": 4.468,
+    "p95_ms": 30.831,
+    "max_ms": 111.276,
+    "non_empty_only": {
+      "n": 262,
+      "mean_ms": 22.554,
+      "median_ms": 20.957,
+      "p95_ms": 38.038,
+      "max_ms": 111.276
+    },
+    "non_empty_subgraphs": 262,
+    "mean_nodes_non_empty": 31.2,
+    "mean_directed_edges_non_empty": 768.7
+  },
+  "bm25_retrieval": {
+    "n": 683,
+    "mean_ms": 43.855,
+    "median_ms": 44.313,
+    "p95_ms": 54.371,
+    "max_ms": 82.181,
+    "index_build_ms": 900.1,
+    "index_python_peak_mb": 8.68,
+    "index_pickle_mb": 1.702,
+    "indexed_provisions": 1222,
+    "note": "corpus of three acts; per-query BM25 time grows with corpus size, so this is a lower bound"
+  },
+  "encoder": {
+    "parameters": 6340097,
+    "paper_reported_parameters": 6340097,
+    "state_dict_fp32_mb": 25.37,
+    "state_dict_fp16_mb": 12.68,
+    "node_feature_table_fp32_mb_for_2619_nodes": 42.9,
+    "node_feature_table_fp16_mb_for_2619_nodes": 21.5,
+    "latency": {
+      "threads_1": {
+        "non_empty": {
+          "n": 150,
+          "mean_ms": 246.11,
+          "median_ms": 258.247,
+          "p95_ms": 346.247,
+          "max_ms": 416.657
+        },
+        "null_tokens": {
+          "n": 50,
+          "mean_ms": 0.007,
+          "median_ms": 0.004,
+          "p95_ms": 0.015,
+          "max_ms": 0.073
+        }
+      },
+      "threads_16": {
+        "non_empty": {
+          "n": 150,
+          "mean_ms": 30.682,
+          "median_ms": 30.829,
+          "p95_ms": 39.474,
+          "max_ms": 49.532
+        },
+        "null_tokens": {
+          "n": 50,
+          "mean_ms": 0.006,
+          "median_ms": 0.005,
+          "p95_ms": 0.007,
+          "max_ms": 0.025
+        }
+      }
+    }
+  },
+  "prompt_cost": {
+    "tokens": {
+      "text_only": {
+        "added_tokens": 0
+      },
+      "graph_soft_prefix": {
+        "added_tokens": 8
+      },
+      "bm25_evidence_text": {
+        "added_tokens_mean": 384.0,
+        "added_tokens_cap": 384
+      },
+      "subgraph_as_labels_text": {
+        "added_tokens_mean_non_empty": 210.4
+      },
+      "subgraph_as_labels_and_edges_text": {
+        "added_tokens_mean_non_empty": 5281.1
+      },
+      "subgraph_as_node_texts_48_tokens": {
+        "added_tokens_mean_non_empty": 1423.5
+      }
+    },
+    "qwen3_8b": {
+      "layers": 36,
+      "hidden": 4096,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_token_fp16": 147456,
+      "non_embedding_params_billions": 6.95
+    },
+    "analytic_qwen3_8b": {
+      "text_only": {
+        "sequence_tokens": 1536,
+        "prefill_tflops": 22.033,
+        "relative_flops": 1.0,
+        "kv_cache_mb_fp16": 226.5
+      },
+      "graph_soft_prefix": {
+        "sequence_tokens": 1544,
+        "prefill_tflops": 22.152,
+        "relative_flops": 1.0054,
+        "kv_cache_mb_fp16": 227.7
+      },
+      "bm25_evidence_text": {
+        "sequence_tokens": 1920.0,
+        "prefill_tflops": 27.759,
+        "relative_flops": 1.2599,
+        "kv_cache_mb_fp16": 283.1
+      },
+      "subgraph_as_labels_text": {
+        "sequence_tokens": 1746.4,
+        "prefill_tflops": 25.16,
+        "relative_flops": 1.1419,
+        "kv_cache_mb_fp16": 257.5
+      },
+      "subgraph_as_labels_and_edges_text": {
+        "sequence_tokens": 6817.1,
+        "prefill_tflops": 108.405,
+        "relative_flops": 4.9201,
+        "kv_cache_mb_fp16": 1005.2
+      },
+      "subgraph_as_node_texts_48_tokens": {
+        "sequence_tokens": 2959.5,
+        "prefill_tflops": 43.695,
+        "relative_flops": 1.9831,
+        "kv_cache_mb_fp16": 436.4
+      },
+      "bm25_evidence_same_budget": {
+        "sequence_tokens": 1536,
+        "prefill_tflops": 22.033,
+        "relative_flops": 1.0,
+        "kv_cache_mb_fp16": 226.5,
+        "note": "evidence replaces up to 384 view tokens; the view the model reads is shorter by that amount"
+      }
+    }
+  },
+  "prefill_proxy_qwen3_0_6b_cpu_controlled": {
+    "rows": {
+      "text_only": {
+        "sequence_tokens": 1536,
+        "min_ms": 8886.4,
+        "median_ms": 9950.6,
+        "spread_max_over_min": 1.913,
+        "min_relative_to_text_only": 1.0
+      },
+      "text_only_repeat_noise_control": {
+        "sequence_tokens": 1536,
+        "min_ms": 8871.5,
+        "median_ms": 10550.3,
+        "spread_max_over_min": 1.86,
+        "min_relative_to_text_only": 0.998
+      },
+      "graph_soft_prefix_8_tokens": {
+        "sequence_tokens": 1544,
+        "min_ms": 8983.8,
+        "median_ms": 12506.2,
+        "spread_max_over_min": 1.819,
+        "min_relative_to_text_only": 1.011
+      },
+      "subgraph_as_labels_text": {
+        "sequence_tokens": 1746,
+        "min_ms": 9947.3,
+        "median_ms": 14317.4,
+        "spread_max_over_min": 1.867,
+        "min_relative_to_text_only": 1.119
+      },
+      "subgraph_as_node_texts_48_tokens": {
+        "sequence_tokens": 2959,
+        "min_ms": 17056.4,
+        "median_ms": 21190.4,
+        "spread_max_over_min": 1.876,
+        "min_relative_to_text_only": 1.919
+      }
+    },
+    "rounds": 6,
+    "threads": 8,
+    "note": "Qwen3-0.6B float32 on CPU stands in for Qwen3-8B on a T4 and shows relative cost only; the noise-control row repeats the text-only prompt, so its distance from 1.0 bounds the measurement error"
+  }
+}

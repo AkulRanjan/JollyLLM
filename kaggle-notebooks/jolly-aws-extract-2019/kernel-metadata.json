@@ -1,0 +1,16 @@
+{
+  "id": "vanshag08/jolly-aws-extract-2019",
+  "title": "jolly-aws-extract-2019",
+  "code_file": "jolly-aws-extract-2019.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "None",
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
