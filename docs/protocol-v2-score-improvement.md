@@ -96,3 +96,32 @@ earlier for any reason, the 2018 set is spent and this document must say so unde
   dropped before any model used it: on 40 fresh training-year cases it agreed with a blind hand reading on 26.
 - **2026-10-29, round 2b result**: +0.013 [-0.016, +0.042] on dev, not adopted (`docs/round2-results.md`). 2019 stays
   unopened.
+- **2026-10-29, SaulLM probe, fixed before any result was seen** (`kaggle-notebooks/jolly-saullm-probe`, Kaggle T4).
+  SaulLM-7B (`Equall/Saul-7B-Base`, falling back to `Equall/Saul-7B-Instruct-v1`), frozen and loaded in 4-bit NF4. Input:
+  the `body-prefix-masked-v2` view (6,000 characters), first 1,536 tokens. Features: mean-pooled hidden states of layer 8,
+  16, 24 or 32. Head: standardised balanced logistic regression; the layer and C (0.01, 0.1, 1) are chosen by 5-fold
+  out-of-fold macro-F1 inside the training years, never on dev. Training years: 2013-2014, then earlier years added most
+  recent first while a 3-hour embedding budget lasts. Compared on dev 2015 with TF-IDF + LR trained on the same years,
+  alone and averaged with TF-IDF, under the section 4 rule. QLoRA fine-tuning is considered only if this passes.
+- **2026-10-30, SaulLM result** (`docs/saullm-results.md`): -0.050 (2013-14) and -0.064 (2008-14) against TF-IDF, not
+  adopted; QLoRA not run. 2019 stays unopened.
+- **2026-10-30, review probes, fixed before any of their results were seen** (`kaggle-notebooks/jolly-review-probes`,
+  local CPU), answering the review of 2026-10-21. These are linear stand-ins on dev 2015 and do not replace LLM seeds.
+  No model is scored on 2017, 2018 or 2019; 2017 and 2018 are read only for exclusion counts, and 2019 is not opened.
+  (a) **Exclusion audit**: per-year funnel by the `_skip_reason` order, plus a usable-view count. TF-IDF is scored on dev
+  cases that have a four-way official label and a view but failed the text rule, alone and joined with the retained
+  cases, and is also trained with such cases included.
+  (b) **Statute features**: provisions from the view (`extract_indian_references_v2`), binary bag `S`; the same plus the
+  co-citation selector (budget 32, earlier training years only, ranked by distinct seeds, then supporting cases, then
+  id) gives `G`. Candidates `T+S` and `T+G` add the L2-normalised block with weight w chosen on the inner split (train
+  2005-2013, score 2014) from {0.1, 0.2, 0.35, 0.5}. Compared with TF-IDF `T` by the section 4 rule, on the 2005-14 and
+  2013-14 windows.
+  (c) **Controls**, five draws each at the `G` weight: `R`, every query's seeds replaced by as many provisions drawn by
+  citation frequency, then expanded; `H`, real seeds expanded over a graph whose provision ids are randomly permuted.
+  `T+G` is also compared with `T+S` and `T+R`.
+  (d) **Subgroups**: the comparisons split by whether the view has an eligible seed.
+  (e) **Training-sample stability**: `T` against `T+G` over 10 bootstrap resamples of the 2013-14 training cases.
+  (f) **Temporal decay on one text pipeline**: PDF-text cases only, train 2005-2009 scored on each of 2010-2015, and
+  two-year training windows scored 1, 2 and 3 years ahead.
+  (g) **Validation-size simulation**: 5,000 random draws of 46 dev cases, reporting the macro-F1 spread and how often the
+  ordering of two fixed models flips.

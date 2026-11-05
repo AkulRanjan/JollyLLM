@@ -1,0 +1,540 @@
+\documentclass[journal]{IEEEtran}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx,booktabs,array,multirow}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+\newcommand{\cls}[1]{\emph{#1}}
+\newcolumntype{Y}[1]{>{\raggedright\arraybackslash}p{#1}}
+\graphicspath{{figures/}}
+\setlist{nosep,leftmargin=1.5em}
+\hyphenation{Bharatiya Sanhita Nagarik Suraksha}
+
+\begin{document}
+\title{A Temporally Disjoint, Leakage-Controlled Framework for Statute-Graph-Augmented Legal Language Model Enhancement}
+
+\author{N.~Sivaranjani\IEEEauthorrefmark{1}, Akul~Ranjan\IEEEauthorrefmark{1}, and Vansh~Agarwal\IEEEauthorrefmark{1}\\
+\IEEEauthorrefmark{1}Vellore Institute of Technology, Chennai, India
+\thanks{This research received no external funding.}
+\thanks{The authors are with the Vellore Institute of Technology, Chennai, India (e-mail: sivaranjani.n@vit.ac.in; akul.ranjan@vitstudent.ac.in; vansh.agarwal2024@vitstudent.ac.in).}
+\thanks{(\emph{Corresponding author: N. Sivaranjani.})}}
+
+\markboth{Sivaranjani \MakeLowercase{\textit{et al.}}: Statute-Graph-Augmented Legal Language Model Enhancement}{Sivaranjani \MakeLowercase{\textit{et al.}}: Statute-Graph-Augmented Legal Language Model Enhancement}
+
+\maketitle
+
+\begin{abstract}
+Classifying how an appellate court disposes of a dispute from the opening of its judgment can help counterparties to assess litigation exposure in corporate disputes, to structure the execution of agreements and to plan arbitration and enforcement strategy, and earlier work has addressed outcome classification with text classifiers, legal language models and graph-augmented systems. To the best of the authors' knowledge, no study has tested a time-safe statute graph prefix for a quantised language model under a single-shot, out-of-time evaluation on Indian Supreme Court judgments, or measured what such a prefix costs. The paper presents a temporally disjoint, leakage-controlled framework in which a QLoRA-adapted Qwen3-8B model receives eight soft tokens distilled from a statute co-citation graph that is built only from earlier judgments. The graph-augmented model matches the text-only model, with a macro-F1 of 0.365 against 0.360 on 608 test cases and a paired interval that lies within 0.05 of zero, and both exceed the untrained baseline of 0.269. The prefix adds 8 tokens to a 1,536-token prompt (0.5\% more prefill computation), 6.34 million parameters and 0.7\% training time, whereas a text-based evidence passage adds 384 tokens and a textual rendering of the retrieved subgraph adds between 210 and 5,281 tokens. Randomised graphs perform as well as real graphs in linear controls, so the paper claims parity and economy of context but no gain in accuracy, and matched seeds, a language-model randomised control and an expert baseline are left for future work.
+\end{abstract}
+
+\begin{IEEEkeywords}
+legal outcome classification, Supreme Court of India, knowledge graphs, graph neural networks, large language models, QLoRA, temporal evaluation, data leakage, negative results.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Automatically classifying the outcome of a court case from its text has attracted sustained interest over the past decade, with studies covering the European Court of Human Rights \cite{r1,r2,r3}, the Supreme Court of the United States \cite{r4}, Chinese courts \cite{r5,r6} and the Swiss Federal Supreme Court \cite{r7}. The practical stake is clearest in corporate disputes, where counterparties negotiate the execution of share purchase, shareholder, loan and supply agreements against an expectation of how a court would resolve a later disagreement over their terms, and where an early view of the likely disposition of a claim informs settlement, arbitration and enforcement decisions. Beyond that practical value for case triage and legal research, the task offers a way of asking whether statistical models capture something of legal reasoning or merely respond to surface vocabulary \cite{r8,r9}. India is a particularly natural setting for this question, because its apex court publishes a large volume of judgments in English and the research community has already produced dedicated corpora, benchmarks and pre-trained models for Indian law \cite{r10,r11,r12}.
+
+Large language models (LLMs) now read legal text fluently, and parameter-efficient fine-tuning has made it practical to adapt models with seven or eight billion parameters on a single commodity GPU \cite{r13,r14}. Even so, an LLM still receives a judgment as a flat sequence of tokens, whereas legal reasoning is relational in character, since a judgment applies provisions of statutes, sits within a web of precedent and is bound to the law as it stood on the date of decision. Earlier work has tried to exploit this structure through dependencies among subtasks \cite{r5}, graphs that separate confusable law articles \cite{r15}, heterogeneous networks of statutes and documents \cite{r16,r17} and relational learning over cases \cite{r18}. In open-domain question answering, graph encoders have been combined with language models through joint reasoning \cite{r19,r20} and through soft graph tokens \cite{r21,r22,r23}, which suggests that a compact graph signal might be fused with a lightly tuned LLM in the legal domain as well. Whether such a signal actually helps under realistic constraints remains an open question, and a carefully obtained negative answer would be informative in its own right.
+
+The word ``prediction'' needs careful handling in this setting, and the paper uses it sparingly for that reason. The input to the models of the paper is the opening of a judgment that has already been written, by a court that already knew its decision when those paragraphs were composed. The task is therefore best described as retrospective outcome classification from a masked opening. It does not demonstrate that an outcome could be anticipated before the court begins drafting, and the way an opening frames the facts may itself be shaped by the conclusion the court has reached. Where the paper uses the word prediction, it refers only to the output of a model in this retrospective sense.
+
+The intended scenario for the paper is research and not deployment. The paper provides a controlled benchmark for measuring whether structured legal knowledge changes the behaviour of a text model, and it makes no proposal for a system that would be used by courts, counsel, counterparties or litigants. A realistic tool for use before a decision, for instance by a company assessing its exposure under an executed agreement, would need access to material such as pleadings, the executed instrument and its schedules, board resolutions, arbitral awards, lower-court orders and grounds of appeal, none of which is contained in the data used here, and the findings of this paper should not be transferred to that setting without fresh evaluation.
+
+Answering that question also requires care with evaluation, because several familiar failure modes can create an illusion of progress. Judgments state their own outcome in the operative paragraph and often in a headnote, so models trained on unmasked text may learn to read the answer instead of inferring it \cite{r24}. Random splits overstate performance when data drift over time \cite{r25,r26}, test sets of a few dozen cases cannot separate competing systems, and repeated evaluation on the same test set inflates results through selection \cite{r27,r28}. A graph built from a corpus adds a further channel of leakage, because edges contributed by test judgments, or by judgments decided after the query, carry information that would not have been available at the relevant date.
+
+The study is organised around four research questions. The first asks how well a QLoRA-adapted 8B language model classifies four-way outcomes from a masked judgment opening when it is tested on judgments decided after its training data. The second asks whether there is evidence that a compact statute graph prefix, built only from earlier training judgments, adds predictive value beyond the text itself. The third asks what limits performance in this setting, and in particular whether the limits lie in the model, in the input or in the definition of the task. The fourth asks what the graph prefix costs, in retrieval latency, storage and prompt length, relative to text-only prompting and to text-based evidence retrieval.
+
+The paper makes five contributions, and it states them in terms that match the strength of the evidence. First, it provides a temporally disjoint, leakage-controlled framework with an audited benchmark, which consists of hash-pinned sources, labels validated against official metadata, a leakage audit and a year-by-year account of what the selection process removes. Second, it shows that a QLoRA model with an eight-token statute graph prefix performs on par with a QLoRA model on text alone, with a pooled macro-F1 of 0.365 against 0.360 on 608 test cases and a paired interval that lies inside $\pm$0.05, so that the graph model is non-inferior on macro-F1 at that margin on 2017 and equivalent to the text model on the pooled test set. Third, it measures what the prefix costs and finds the cost small, namely 8 added tokens, 0.5\% more prefill computation, 6.34 million encoder parameters and 0.7\% more training time, against 384 tokens for a text-based evidence passage and 210 to 5,281 tokens for a textual rendering of the same subgraph. Fourth, it describes controls that test the claim, including ablation at inference and development-year linear baselines built from statute features, randomised statutes and shuffled edges, and these controls show no gain in accuracy from the content of the graph. Fifth, it states plainly what remains unknown, namely seed variance, the behaviour of an LLM randomised control and the performance of human experts. The method applies existing techniques, namely soft graph tokens \cite{r21}, relational graph convolution \cite{r32} and co-citation \cite{r31}, to a new legal dataset, and the time-safe, provision-only selector is an engineering choice forced by the constraints of the task and not a new class of method.
+
+The remainder of the paper is organised as follows. Section~\ref{sec:related} reviews the literature, Section~\ref{sec:compare} compares the most relevant studies against the present data, and Section~\ref{sec:gap} sets out the research gap. Sections~\ref{sec:data}, \ref{sec:method} and~\ref{sec:setup} describe the data, the method and the experimental setup. Section~\ref{sec:results} analyses the results, Section~\ref{sec:discussion} discusses their meaning and limitations, and Sections~\ref{sec:future} and~\ref{sec:conclusion} set out further work and conclusions.
+
+\section{Literature Review}\label{sec:related}
+\subsection{Legal judgment prediction}
+Early work framed outcome prediction as text classification over hand-engineered or bag-of-words features. Aletras et al.\ classified violations of the European Convention on Human Rights from n-gram and topic features of case descriptions \cite{r1}, while Katz et al.\ modelled the behaviour of the United States Supreme Court from case and justice metadata using random forests over two centuries of decisions \cite{r4}. Medvedeva et al.\ later examined how such models behave when they are trained on earlier decisions and tested on later ones, which brought the temporal dimension of the problem into sharper focus \cite{r2}.
+
+Neural approaches followed as larger datasets became available. Chalkidis et al.\ introduced an English dataset for the European Court together with hierarchical attention and BERT baselines \cite{r3}, and the large Chinese CAIL2018 corpus \cite{r6} encouraged models that exploit the structure of the label space, including topological dependencies among the charge, law-article and penalty subtasks \cite{r5}. Subsequent studies have distinguished confusable law articles through graph distillation \cite{r15}, modelled the circumstances of a case \cite{r36}, extracted legal events under constraints \cite{r37} and explored relational learning \cite{r18}. Multilingual and multi-task benchmarks now extend to Swiss, European and American data \cite{r7,r38,r39}, and several surveys summarise the development of the field \cite{r8,r9}.
+
+A growing body of work has begun to question what these models actually predict. Medvedeva and McBride argue that many so-called prediction studies classify outcomes from texts written after the decision, so that they describe a result instead of forecasting one \cite{r24}. The present task remains subject to that critique, because masking removes explicit statements of the outcome without altering the fact that the text post-dates the decision. Related work on rationale extraction has also shown that the paragraphs on which a model relies can diverge from those that legal experts regard as decisive \cite{r40}, which is a further reason for caution in interpreting any score as evidence of legal understanding.
+
+\subsection{Legal language processing for Indian courts}
+The Indian Legal Documents Corpus (ILDC) introduced court judgment prediction and explanation for the Supreme Court of India by pairing binary accept or reject labels with expert explanations, and its models read the judgment text with the final decision removed \cite{r10}. IL-TUR has since assembled a broader benchmark of tasks in Indian legal understanding and reasoning \cite{r11}, InLegalBERT and related models have been pre-trained on Indian legal text \cite{r12}, and rhetorical-role corpora segment judgments into facts, arguments, analysis and ruling \cite{r41}. On the structural side, LeSICiN identifies relevant statutes using a heterogeneous graph of documents and statute sections \cite{r16}, and Hier-SPCNet uses the statute hierarchy to compute the similarity of case documents \cite{r17}. Recent studies have also evaluated LLMs on Indian statute and judgment prediction \cite{r42} and on prediction accompanied by explanation \cite{r43}.
+
+The present setting differs from this body of work in several respects that affect how results should be compared. The paper keeps four outcome classes and retains the procedurally important category of matters disposed of, validates labels against the court's own metadata, restricts inputs to the opening of the judgment body and tests on a later year than any used in training.
+
+\subsection{Legal language models}
+Domain-specific pre-training has been shown to improve legal understanding, as illustrated by LEGAL-BERT for English \cite{r44} and InLegalBERT for Indian law \cite{r12}, and it is supported by large open corpora such as the Pile of Law \cite{r45}. Domain-adaptive pre-training offers a general recipe for such gains \cite{r46}, and SaulLM-7B continues the pre-training of a seven-billion-parameter decoder on legal text \cite{r47}. LegalBench measures legal reasoning across many task types \cite{r48}, systematic studies of LLMs for judgment prediction report strong but uneven performance in zero-shot and few-shot settings \cite{r49}, and precedent-enhanced methods combine LLMs with retrieved similar cases \cite{r50}. Against these advances stands evidence that LLMs hallucinate legal facts at worrying rates \cite{r51}, which is one motivation for designs grounded in verifiable structure.
+
+\subsection{Graphs and networks in law}
+Citation networks have long been used to measure the importance of precedents \cite{r52}, and bibliometric co-citation, in which two documents are treated as related when a third cites both, provides a robust and interpretable measure of similarity \cite{r31}. Knowledge graphs offer a general framework for typed, provenance-backed facts \cite{r53}, and in the Indian context graphs of statutes and documents have supported both statute identification and similarity search \cite{r16,r17}. The paper follows this tradition with a deliberately conservative graph in which provisions are linked only through training-split judgments decided before the query. Because the prefix contains provisions alone, no case outcome or party name can reach the model through the graph.
+
+\subsection{Fusing graphs with language models}
+Graph neural networks learn node representations by message passing \cite{r54}, and relational graph convolutional networks extend the idea to typed edges through relation-specific weights \cite{r32}. Several lines of work combine such encoders with language models. QA-GNN and GreaseLM allow text and knowledge-graph representations to interact during question answering \cite{r19,r20}. GraphToken encodes a graph into soft tokens consumed by a frozen LLM \cite{r21}, and Graph Neural Prompting injects a graph neural prompt into an LLM \cite{r22}. G-Retriever retrieves a subgraph using a prize-collecting Steiner tree (PCST) formulation \cite{r55}, encodes it with a graph network and feeds it to an LLM together with a textual form of the graph \cite{r23}. Retrieval-augmented generation \cite{r56} and its graph variants \cite{r57} retrieve structure at inference time, and a recent roadmap surveys the wider unification of language models and knowledge graphs \cite{r58}. The encoder of the paper follows the soft-token line of work, and its first selector followed the PCST formulation of G-Retriever before the paper replaced it with a selector better suited to the leakage constraints of this task.
+
+\subsection{Parameter-efficient adaptation}
+Low-rank adaptation (LoRA) trains small rank-decomposition matrices alongside frozen weights \cite{r13}, and QLoRA backpropagates through a base model quantised to four bits using the NormalFloat format, which brings the fine-tuning of 8B models within reach of a 16 GB GPU \cite{r14}. Prefix-tuning showed that continuous vectors prepended to the input can steer a frozen model \cite{r33}, and the graph tokens of the paper are a data-dependent prefix of this kind computed from the subgraph of each case. The base model used here, Qwen3, belongs to a recent open-weight family with strong multilingual and reasoning performance \cite{r59}.
+
+\subsection{Evaluation methodology}
+Leakage from training into test data is a pervasive source of over-optimism in applied machine learning \cite{r27}, random splits can overstate generalisation compared with splits that respect time \cite{r25}, and language models are known to degrade on text from periods after their training data \cite{r26}. For small test sets, paired resampling tests are preferred to unpaired comparisons \cite{r28,r34}, McNemar's test compares two classifiers on the same cases \cite{r35}, and macro-averaged F1 with class re-weighting is standard practice under class imbalance \cite{r60}.
+
+\section{Comparative Analysis of Existing Work}\label{sec:compare}
+Table~\ref{tab:compare} compares the studies closest to the present work, listing for each the paper, its authors, the techniques used, its main advantages and disadvantages, and the reason it does not directly fit the data used in this study. The final column is a reasoned assessment of fit based on the data and constraints described in Section~\ref{sec:data}, and it should not be read as a claim that these methods would fail if adapted. Most of the listed methods were not re-implemented here. Where a related model was tested on the present data, the measured outcome is reported in Section~\ref{sec:results}.
+
+\begin{table*}[!t]
+\caption{Comparison of closely related studies and their fit with the present data.}\label{tab:compare}
+\scriptsize\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{1.1}
+\centering
+\begin{tabular}{@{}Y{0.145\textwidth}Y{0.095\textwidth}Y{0.165\textwidth}Y{0.155\textwidth}Y{0.155\textwidth}Y{0.21\textwidth}@{}}
+\toprule
+\textbf{Paper} & \textbf{Authors} & \textbf{Techniques used} & \textbf{Advantages} & \textbf{Disadvantages} & \textbf{Why it does not suit this data}\\\midrule
+Predicting judicial decisions of the European Court of Human Rights \cite{r1} & Aletras, Tsarapatsanis, Preo\c{t}iuc-Pietro, Lampos & N-gram and topic features with a support vector machine & Simple, transparent and inexpensive to train & Works on case descriptions drawn from published judgments, and uses a random evaluation design & Assumes a binary violation label and a sectioned judgment format, whereas the present task has four classes and an opening with no such sections\\
+A general approach for predicting the behavior of the US Supreme Court \cite{r4} & Katz, Bommarito, Blackman & Random forests over case and justice metadata & Evaluated across two centuries with a rolling design & Depends on rich hand-coded metadata and ignores the text & Comparable justice-level coding does not exist for these judgments, and the bench data here is much thinner\\
+Using machine learning to predict decisions of the ECtHR \cite{r2} & Medvedeva, Vols, Wieling & Linear models over n-grams, with tests on later periods & Addresses temporal generalisation directly & Article-specific binary tasks with modest data per article & Its per-article design does not map to a court whose docket mixes commercial, civil, tax and constitutional matters\\
+Neural legal judgment prediction in English \cite{r3} & Chalkidis, Androutsopoulos, Aletras & Hierarchical attention networks and BERT over case facts & Strong neural baseline with a public benchmark & Requires a separate statement of facts & Indian judgments have no uniform facts section, so the same input cannot be extracted reliably\\
+Legal judgment prediction via topological learning \cite{r5} & Zhong, Guo, Tu, Xiao, Liu, Sun & Directed acyclic graph of dependencies among subtasks & Models the links among charges, articles and penalties & Needs jointly labelled subtasks at very large scale & The data has one outcome label per case and no charge or penalty annotations\\
+Distinguish confusing law articles \cite{r15} & Xu, Wang, Chen, Pan, Wang, Zhao & Graph distillation over law articles & Separates similar articles that are easily confused & Built for article and charge prediction in a civil-law setting & The present task predicts a disposition, and appellate outcomes are not determined by an article label\\
+NeurJudge \cite{r36} & Yue, Liu, Jin, Wu, Zhang, An, Cheng, Yin, Wu & Fact separation using results of intermediate subtasks & Exploits sentencing circumstances effectively & Tailored to charge-oriented facts and multiple linked subtasks & A large part of the docket concerns commercial, civil and constitutional appeals, and the intermediate labels do not exist\\
+Legal judgment prediction via event extraction with constraints \cite{r37} & Feng, Li, Ng & Hierarchical event extraction under output constraints & Improves consistency across subtasks & Requires annotated events and consistent fact patterns within one charge type & Annotating legal events across the corpus was not available, and consistency rules across subtasks do not apply\\
+ILDC for CJPE \cite{r10} & Malik, Sanjay, Nigam, Ghosh, Guha, Bhattacharya, Modi & Transformer hierarchies with expert explanations & Purpose-built for the Supreme Court of India & Binary labels, with inputs extending much further into the judgment & Reads far more of the reasoning than the masked opening, and the binary framing drops the disposed-of class\\
+Pre-trained language models for the legal domain \cite{r12} & Paul, Mandal, Goyal, Ghosh & Domain pre-training of BERT-style models on Indian law & Better legal vocabulary and Indian context & Short input window of about 512 tokens & Reads only part of the 6,000-character view, and pre-training does not supply the missing outcome information\\
+LeSICiN \cite{r16} & Paul, Goyal, Ghosh & Heterogeneous graph of documents and statute sections & Learns statute structure for identification tasks & Solves statute identification, and its graph includes documents & Case nodes in a graph open a leakage channel under the protocol of the paper, and identification differs from outcome classification\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[!t]
+\addtocounter{table}{-1}
+\caption{Comparison of closely related studies and their fit with the present data (continued).}
+\scriptsize\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{1.1}
+\centering
+\begin{tabular}{@{}Y{0.145\textwidth}Y{0.095\textwidth}Y{0.165\textwidth}Y{0.155\textwidth}Y{0.155\textwidth}Y{0.21\textwidth}@{}}
+\toprule
+\textbf{Paper} & \textbf{Authors} & \textbf{Techniques used} & \textbf{Advantages} & \textbf{Disadvantages} & \textbf{Why it does not suit this data}\\\midrule
+Hier-SPCNet \cite{r17} & Bhattacharya, Ghosh, Pal, Ghosh & Heterogeneous network with statute hierarchy for similarity & Combines citation and hierarchy information & Solves document similarity with precedent citations & Similarity needs a citation network of cases, which the paper excludes so that case outcomes cannot reach the model\\
+LLMs: the good, the bad or the indispensable? \cite{r42} & Vats, Zope, De, Sharma, Bhattacharya, Nigam, Guha, Rudra, Ghosh & Evaluation of LLMs on Indian statute and judgment prediction & Direct evidence on Indian cases & Inputs and framings differ from a time-separated protocol & Has no year-based separation or masked opening, so its results do not transfer\\
+PredEx \cite{r43} & Nigam, Sharma, Khanna, Shallum, Ghosh, Bhattacharya & Instruction-tuned LLMs for prediction with explanation & Adds legally useful explanation & Requires annotated explanations and fuller case text & The masked opening withholds most of the reasoning that such explanations rely on\\
+A comprehensive evaluation of LLMs on LJP \cite{r49} & Shui, Cao, Wang, Chua & Zero-shot and few-shot prompting with retrieval & Clear comparison across prompting strategies & Evaluated on Chinese charge-prediction data & The label space and legal system differ, and few-shot examples need outcome labels from similar cases\\
+Precedent-enhanced LJP \cite{r50} & Wu, Zhou, Liu, Lu, Liu, Zhang, Sun, Wu, Kuang & LLM combined with retrieved precedents and domain models & Brings case-based reasoning into the model & Precedent outcomes enter the prompt & Under the rule of the paper, outcomes of other cases are not allowed into the input, and the time-safe version of this idea is untested\\
+SaulLM-7B \cite{r47} & Colombo, Pires, Boudiaf, Culver, Melo, Corro, Martins, Esposito, Raposo, Morgado, Desa & Continued pre-training of a 7B decoder on legal text & An open model built specifically for law & Pre-training corpus is mostly European and American & Indian judgments are a small part of its domain, so its legal knowledge may not match this court\\
+QA-GNN \cite{r19} & Yasunaga, Ren, Bosselut, Liang, Leskovec & Joint reasoning over text and a knowledge graph & Interpretable reasoning paths & Designed for short questions with commodity knowledge & Long judgments and legal outcomes are far from short multiple-choice questions, and the required path scoring is costly\\
+Let your graph do the talking \cite{r21} & Perozzi, Fatemi, Zelle, Tsitsulin, Kazemi, Al-Rfou, Halcrow & Graph encoder that emits soft tokens for a frozen LLM & Compact and inexpensive prefix & Evaluated on graph reasoning tasks where the graph is the question & In the present task the graph is side information and the answer lies elsewhere, so the prefix has less to contribute\\
+Graph neural prompting \cite{r22} & Tian, Song, Wang, Wang, Hu, Wang, Chawla, Xu & Graph neural prompt for an LLM & Generalises across language models & Relies on knowledge graphs that cover question entities & The citation extraction covers a minority of cases, so many inputs have no graph\\
+G-Retriever \cite{r23} & He, Tian, Sun, Chawla, Laurent, LeCun, Bresson, Hooi & PCST subgraph retrieval, graph encoding and textual graph & Retrieves focused subgraphs for answering questions & Answers are assumed to lie in the graph & Case nodes would dominate retrieved subgraphs, and because their outcomes must be hidden they carry only titles\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+
+\section{Research Gap}\label{sec:gap}
+Existing studies of Indian judgment prediction mostly evaluate models on judgment text extending up to the decision and on splits drawn from the same period as their training data, while the fusion of graphs with language models has been demonstrated mainly in open-domain question answering. To the best of the authors' knowledge, no prior study has combined a strictly time-safe and split-safe legal graph prefix for a quantised decoder LLM with four-way outcomes validated against official metadata, an out-of-time test year and a single-shot, hash-verified test evaluation reported with paired statistics. Equally, to the best of the authors' knowledge, no study of this kind has examined such a prefix against ablation, statute-only baselines and randomised graph controls, so the literature cannot yet say whether a statute graph contributes anything once the text itself has been read. No study known to the authors reports what such a prefix costs in retrieval latency, storage and prompt length against text-based evidence retrieval. This paper addresses these gaps, and it reports what the prefix does and does not change together with what it costs.
+
+\section{Data and Benchmark Construction}\label{sec:data}
+\subsection{Sources}
+The paper uses two public collections of judgments of the Supreme Court of India. SC-2016 \cite{r29} contains judgments reported in 2016 as OCR-derived Markdown produced with a PaddleOCR pipeline \cite{r61}, and its documents are assigned to training, validation and test splits by a deterministic hash taken from the SHA-256 digest of each document. The open-data archive \cite{r30} publishes per-year collections of judgment PDFs and structured metadata under a CC BY 4.0 licence, including the decision date, case number, bench, reported and neutral citations, and an official disposal nature. Because the archive is updated periodically, every collection used is pinned by SHA-256 in a source registry. The collections cover the whole docket of the court, so commercial and corporate appeals form one stratum within them, and the benchmark carries no subject-matter label with which that stratum could be separated.
+
+The statute layer covers 2,619 provision nodes across six enactments. The Indian Penal Code (IPC), the Code of Criminal Procedure (CrPC), the Indian Evidence Act (IEA) and the Constitution of India are taken from commit-pinned public sources \cite{r62}, and the Bharatiya Nyaya Sanhita and Bharatiya Nagarik Suraksha Sanhita of 2023 are also included. Each provision carries its heading and text, which the paper uses to compute node features as described in Section~\ref{sec:method}. The layer holds no commercial enactment, and because the method does not depend on the choice of enactments, statutes such as the Indian Contract Act 1872, the Companies Act 2013, the Arbitration and Conciliation Act 1996 and the Insolvency and Bankruptcy Code 2016 could be added to it, which the paper leaves for later work.
+
+\subsection{Text extraction}
+Archive judgments are distributed as PDFs with an embedded text layer, which the paper extracts using PyMuPDF. Cleaning removes the margin letters of the Supreme Court Reports layout, page numbers, running headers and any header line repeated on three or more pages, after which end-of-line hyphenation is removed and wrapped lines are joined into paragraphs. On the 357 SC-2016 training judgments that also appear in the archive, about 98\% of the words in the cleaned text layer are clean, compared with 99.5\% for the OCR text, and the text layer recovers about 88\% of the statute citations found in the OCR version of the same judgments.
+
+\subsection{Outcome labels}
+The paper works with four mutually exclusive outcomes, namely \cls{allowed}, \cls{dismissed}, \cls{disposed} (disposed of, typically with directions or as infructuous) and \cls{partly allowed}. These are the dispositions of an appeal in any forum, so the same classes describe the fate of an appeal from a commercial decree, an arbitral award or a company petition. The text-derived label is the latest explicit disposition phrase found in the final 20\% of the judgment, identified through a fixed set of patterns such as ``the appeal is accordingly dismissed''. For archive judgments the paper also maps the official disposal nature onto the same classes, as shown in Table~\ref{tab:map}, and values such as adjourned or referred have no four-way equivalent. On the 341 SC-2016 training judgments for which both labels exist, the two agree on 333 cases, or 97.7\%, and an archive judgment is retained only when both labels exist and agree. This filter costs some coverage in exchange for less label noise, and the paper examines that exchange in Section~\ref{sec:funnel}.
+
+\begin{table}[!t]\centering\footnotesize
+\caption{Mapping from official disposal nature to the outcome classes.}\label{tab:map}
+\begin{tabular}{ll}\toprule Official disposal nature & Class\\\midrule Appeal(s) allowed; Case allowed & allowed\\ Dismissed & dismissed\\ Disposed off & disposed\\ Case partly allowed & partly allowed\\ Any other value (adjourned, referred, and so on) & excluded\\\bottomrule\end{tabular}
+\end{table}
+
+\subsection{Splits}
+SC-2016 judgments keep their hash-assigned split. Archive judgments decided in 2013--2015 join the training split, and those decided in 2017 form an out-of-time test set, decided after every archive training judgment. Archive judgments from 2016 are excluded so that no 2016 judgment can enter the data twice through the two sources, and duplicates are removed by report identifier both within the archive and against SC-2016. After these rules and the input-view requirement below, the benchmark contains 2,470 training examples (731, 699 and 683 archive judgments from 2013, 2014 and 2015, plus 357 from SC-2016), 46 validation examples from SC-2016 and 608 test examples, of which 50 come from SC-2016 and 558 from 2017. Figure~\ref{fig:composition} shows the composition of the benchmark. Labels are imbalanced, with \cls{allowed} the largest class and \cls{partly allowed} the smallest at 134 of 2,470 training examples. The paper verified that the SC-2016 examples are byte-identical to those of the earlier benchmark version and that no 2017 judgment contributes a training-split graph edge.
+
+\begin{figure*}[!t]\centering\includegraphics[width=.8\linewidth]{composition}
+\caption{Benchmark composition. Panel (a) shows labelled examples by decision year, source and split, with the 2017 test year falling after all training years. Panel (b) shows the share of each outcome label per split.}\label{fig:composition}\end{figure*}
+
+\subsection{Selection audit}\label{sec:funnel}
+Table~\ref{tab:audit} accounts for every archive judgment that was extracted, and it includes years beyond the original benchmark so that the benchmark years can be seen in context. Of 12,134 judgments, 10,334 are retained, which is a retention rate of 85.2\%. Within the benchmark itself, 426 of 3,142 archive judgments are lost to duplicate, year and label steps, and a further 45 are lost for lack of a usable view. Retention varies by year in ways that matter. The year 2009 lost 206 judgments for lack of a body marker, which appears to be a layout effect, while the test year 2017 retained 76.2\% against 85.6--89.6\% for the 2013--2015 training years. In particular, 89 of the 732 judgments from 2017 lacked a text phrase, against 24 to 63 per training year, so the test population may differ somewhat from the training population. Selection also changes class balance. Among rejected judgments from 2005--2015 that do have a four-way label, \cls{disposed} accounts for 46\% (266 of 576), compared with 16\% of retained judgments, and the benchmark therefore under-represents this class relative to the docket. The effect of the exclusions on task difficulty is measured in Section~\ref{sec:res-exclusions}.
+
+\begin{table*}[!t]\centering\footnotesize
+\caption{Selection audit for archive years by step. ``Other disposal'' has no four-way label. Two judgments counted under other disposal for 2013--2017 also appear in SC-2016, which accounts for the difference from the earlier figure of 162.}\label{tab:audit}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lrrrrrrrr@{}}\toprule
+Year(s) & Extracted & Duplicate & Other disposal & No phrase & Disagree & No view & Retained & \%\\\midrule
+2005--2012 & 8,200 & 20 & 336 & 300 & 152 & 374 & 7,018 & 85.6\\
+2013 & 854 & 3 & 35 & 63 & 15 & 7 & 731 & 85.6\\
+2014 & 791 & 0 & 29 & 35 & 12 & 16 & 699 & 88.4\\
+2015 & 762 & 1 & 31 & 24 & 11 & 12 & 683 & 89.6\\
+2017 & 732 & 0 & 69 & 89 & 6 & 10 & 558 & 76.2\\
+2018 & 795 & 0 & 127 & 17 & 6 & 0 & 645 & 81.1\\\midrule
+All & 12,134 & 24 & 627 & 528 & 202 & 419 & 10,334 & 85.2\\\bottomrule
+\end{tabular}\end{table*}
+
+\subsection{The masked input view}
+Because judgments announce their own outcome, the input must exclude the passages that state it. An earlier version of the view began at the top of the document and exposed the headnote of the Supreme Court Reports, which summarises the holding in phrases such as ``Dismissing the appeal, the Court held'' and therefore leaks the answer directly. The final view, \texttt{body-prefix-masked-v2}, starts at the judgment body, which is located by the line recording delivery of the judgment, the jurisdiction block or an order heading. It takes at most 6,000 characters and never reads beyond 70\% of the document, so that a gap of at least 10\% always separates the view from the region used to derive the label. Every explicit disposition phrasing is replaced by the token \texttt{outcome\_phrase}, and judgments without a body marker or with fewer than 500 characters are excluded instead of being shown a view that might contain the headnote. The view therefore carries the facts, the procedural history and the beginning of the arguments, although it cannot remove implicit leakage, since a court's account of the facts may reflect its conclusion in ways that no phrase mask can detect.
+
+\section{Method}\label{sec:method}
+Figure~\ref{fig:arch} gives an overview of the system. Stage A builds a statute graph offline from eligible training judgments. Stage B prepares the masked input for each case and resolves its seed provisions. Stage C selects and encodes a subgraph into soft tokens, and Stage D passes those tokens and the prompt embeddings to the language model, which scores the four labels.
+
+\begin{figure*}[!t]\centering\resizebox{\linewidth}{!}{\input{figures/architecture.tex}}
+\caption{Architecture of the statute co-citation graph prefix. The graph is built offline from eligible training judgments only, seeds come from the masked view and never from the full judgment, and the subgraph is encoded into eight soft tokens, or learned null tokens when no seed is eligible. The tokens are concatenated with the prompt embeddings before a 4-bit Qwen3-8B model with LoRA adapters scores each outcome label.}\label{fig:arch}\end{figure*}
+
+\subsection{Task and scoring}
+Let $x$ be the masked view of a judgment and $\mathcal{Y}$ the set of four labels. The prompt consists of a fixed instruction, the view truncated to a 1,536-token budget and an answer cue, as shown in Appendix~\ref{app:prompt}. Given the prompt embedding sequence $E(x)$ and an optional graph prefix $P(x,G)$, the model scores each label by the total log-probability of its verbalisation $v_y$:
+\begin{equation}
+\begin{gathered}s(y\mid x)=\sum_{t=1}^{T_y}\log p_\theta\bigl(v_{y,t}\mid [P(x,G);E(x)],v_{y,<t}\bigr),\\ \hat y=\arg\max_{y\in\mathcal{Y}}s(y\mid x).\end{gathered}
+\end{equation}
+Scoring requires one forward pass over the prompt and short continuations for labels of more than one token, so the model always returns one of the four classes and cannot generate free text.
+
+\subsection{Legal knowledge graph}
+The graph $G=(V,E)$ is typed and backed by provenance, and its nodes are judgments, statute provisions, acts and the court. Citation edges run from a judgment to each provision it cites, containment edges run from an act to its provisions, and decision edges run from a judgment to the court. Citations are extracted by a pattern-based extractor that recognises references such as ``section 65B of the Indian Evidence Act'', ``Article 226 of the Constitution'' and ``Article 14'' and resolves each to a provision node. Every edge records the split of the judgment from which it was extracted and its date. In total the graph has 5,931 nodes and 17,076 edges, and training-split judgments contribute 9,173 citation edges that link 1,705 judgments to 996 distinct provisions. Most of these citations are to the IPC (3,722) and the Constitution (3,406), followed by the CrPC (1,593) and the IEA (452).
+
+\subsection{Time-safe and split-safe retrieval}
+For a query judgment $q$ with as-of date $\tau(q)$, an edge is eligible only if it was extracted from a training-split judgment, its date and the dates of its endpoints do not exceed $\tau(q)$, and neither endpoint is $q$ itself. The paper uses the first day of the decision year as $\tau(q)$, which is conservative and also necessary because some SC-2016 judgments lack a full decision date. The seed set $S_q$ contains the provisions resolved from the masked view, never from the full judgment, that are eligible at $\tau(q)$. As a consequence, validation and test judgments never contribute edges, and no judgment decided after the query can influence its subgraph.
+
+\subsection{Statute co-citation selector}
+Let $C_q$ be the eligible training judgments and $\mathrm{Cit}(c)$ the set of provisions cited by judgment $c$. A provision $p\notin S_q$ becomes a candidate when some eligible judgment cites it together with a seed. For each candidate the paper records the seeds it is co-cited with and the number of supporting judgments:
+\begin{equation}
+\begin{gathered}A(p)=\bigcup_{c\in C_q:\,p\in\mathrm{Cit}(c)}\bigl(\mathrm{Cit}(c)\cap S_q\bigr),\\
+n(p)=\bigl|\{c\in C_q:p\in\mathrm{Cit}(c),\ \mathrm{Cit}(c)\cap S_q\neq\emptyset\}\bigr|.\end{gathered}
+\end{equation}
+Candidates are ranked by $|A(p)|$, then by $n(p)$, and then by identifier, and the selected node set consists of the seeds followed by the top-ranked candidates up to a budget of $B=32$ nodes. Two selected provisions are linked in both directions when an eligible judgment cites both. The construction is the legal analogue of bibliographic co-citation \cite{r31}, on the reasoning that provisions courts repeatedly invoke together, such as a constitutional remedy invoked against arbitrary State action in the award of a contract, the procedural provision under which an appeal is brought and the evidentiary rule governing proof of the terms of a signed agreement, describe the legal frame of a dispute. Judgment nodes are collapsed away, so that no case title, party name or outcome can enter the prefix. The earlier selector of the paper, based on the PCST formulation of G-Retriever \cite{r23,r55}, produced subgraphs whose nodes were mostly co-citing judgments, and those judgments could contribute little beyond their titles.
+
+\subsection{Graph encoder and soft-token prefix}
+Each node $v$ has a feature vector $x_v\in\mathbb{R}^{4096}$, computed as the mean of the frozen LLM input embeddings over the first 48 tokens of the node's text, which is the provision's label and the first 400 characters of its content. After an input projection to $h=256$ dimensions, two relational graph convolution layers \cite{r32} update each node:
+\begin{equation}
+h_v^{(l+1)}=\mathrm{ReLU}\Bigl(W_0^{(l)}h_v^{(l)}+\sum_{r\in\mathcal{R}}\sum_{u\in\mathcal{N}_r(v)}\frac{1}{c_{v,r}}W_r^{(l)}h_u^{(l)}\Bigr),
+\end{equation}
+where $\mathcal{N}_r(v)$ is the set of neighbours of $v$ under relation $r$, $c_{v,r}=|\mathcal{N}_r(v)|$, and $\mathcal{R}$ includes inverse relations. The node states $H$ are then pooled into $K=8$ tokens by attention with learned queries $Q_0$, which are shifted by a projection of the mean prompt embedding $\bar e$ so that the pooling is conditioned on the query:
+\begin{equation}
+\begin{gathered}Q=Q_0+\mathbf{1}(W_q\bar e)^\top,\quad \alpha=\mathrm{softmax}\bigl(Q(W_kH^\top)^\top\bigr),\\ P=\gamma\cdot\mathrm{LN}(\mathrm{MLP}(\alpha H)).\end{gathered}
+\end{equation}
+A two-layer perceptron maps the pooled states to the LLM's embedding space, and the learned scale $\gamma$ is initialised to the root-mean-square of the input embeddings, so that the prefix begins at the scale of ordinary tokens. When a query has no eligible seed, its subgraph is empty and the model receives $K$ learned null tokens, which means that every case receives the same eight prefix positions. The encoder has 6,340,097 parameters.
+
+\subsection{Conditioning and training objective}
+The prefix is concatenated before the prompt embeddings as $[P;E(x)]$. The base model is Qwen3-8B \cite{r59}, loaded in 4-bit NormalFloat with double quantisation and float16 computation \cite{r14}. LoRA adapters of rank 16, with $\alpha=32$ and dropout of 0.05, are attached to all attention and MLP projections \cite{r13}, which gives 43,646,976 trainable adapter parameters. Training minimises a class-weighted cross-entropy over the verbalised label and an end-of-sequence token:
+\begin{equation}
+\begin{gathered}L(x,y)=-w_y\sum_{t=1}^{T_y+1}\log p_\theta\bigl(v_{y,t}\mid[P;E(x)],v_{y,<t}\bigr),\\ w_y\propto\frac{N}{|\mathcal{Y}|N_y},\end{gathered}
+\end{equation}
+where the weights are inverse class frequencies normalised to a mean of one \cite{r60}, giving 0.58 for \cls{allowed}, 0.76 for \cls{dismissed}, 1.34 for \cls{disposed} and 4.61 for \cls{partly allowed}. Adapters and encoder are trained jointly with AdamW at learning rates of $2\times10^{-4}$ and $5\times10^{-4}$, using 10\% linear warm-up followed by linear decay, gradient accumulation over eight examples and gradient clipping at 1.0.
+
+\subsection{Baselines and controls}
+All LLM baselines share the same base model, prompt, input view and scoring rule. The majority baseline always predicts \cls{allowed}. The zero-shot baseline scores the four labels with the untuned model. The BM25 evidence prompt retrieves the four statute provisions most relevant to the view \cite{r63} and prepends up to 384 tokens of their text inside the same token budget, without training. The QLoRA text model is identical to the graph model except that it has no graph encoder, and it uses the same data, seed, data order, recipe and budget. In addition, the trained graph model is scored a second time with its graph tokens replaced by the null tokens, which isolates the per-case contribution of the subgraph at inference time.
+
+On the development year the paper also uses transparent linear controls. The reference model $T$ is a TF-IDF representation of one and two word sequences with class-balanced logistic regression. Model $S$ is a binary bag of the provisions cited in the view, which serves as a non-graph statute baseline, and model $G$ adds the co-citation neighbours chosen by the selector above. Models $T{+}S$ and $T{+}G$ join these blocks to the text. Two controls then test whether the content of the graph matters, with five random draws each. In $T{+}R$, the seeds of each case are replaced by the same number of provisions drawn according to citation frequency and then expanded, and in $T{+}H$, real seeds are expanded over a graph whose provision identifiers have been permuted. These controls test the information contained in the graph using a transparent model, and they do not test the R-GCN prefix inside an LLM.
+
+\section{Experimental Setup}\label{sec:setup}
+\subsection{Compute and software}
+All LLM runs used a single NVIDIA T4 GPU with 16 GB of memory in a hosted notebook service, with PyTorch, Hugging Face Transformers \cite{r64}, PEFT and bitsandbytes. The base model is pinned to a fixed repository revision, and each notebook embeds the exact project code and configuration and verifies the SHA-256 of every input before training. Training writes resumable checkpoints every 96 examples, and one epoch over 2,470 examples took 7.38 hours for the text model and 7.43 hours for the graph model, so the prefix costs less than one percent of training time. Table~\ref{tab:config} summarises the configuration shared by the two models, which differ only in the variant and selector.
+
+\begin{table}[!t]\centering\footnotesize
+\caption{Training configuration shared by the text and graph models.}\label{tab:config}
+\begin{tabular}{@{}lY{5.7cm}@{}}\toprule Setting & Value\\\midrule
+Base model & Qwen3-8B, 4-bit NF4, double quantisation, float16 computation\\
+LoRA & rank 16, $\alpha=32$, dropout 0.05, on all attention and MLP projections\\
+Learning rate & $2\times10^{-4}$ for LoRA and $5\times10^{-4}$ for the encoder, with AdamW\\
+Schedule & 10\% warm-up, linear decay, one epoch, gradient accumulation of 8\\
+Loss & inverse-frequency class weights, gradient clipping at 1.0\\
+Input & masked body prefix of up to 6,000 characters, 1,536-token budget\\
+Graph prefix & co-citation selector, 32-node budget, two R-GCN layers of 256 units, 8 tokens\\
+Seed and order & 20261006, identical for both models\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Evaluation protocol}
+Each model is trained in its own session, which never reads test labels and records this fact in the run manifest. At the end of training the run is frozen, and a manifest records the SHA-256 of the adapter files, the encoder weights and the configuration. A separate evaluation session then takes the frozen run as input, verifies every hash, scores the test split exactly once and refuses to run again if a result already exists. Graph models are scored once more with their tokens ablated, and predictions for both test sources are produced in this single pass and reported separately. The later linear probes follow a written protocol in which each probe and its decision rule were fixed before any result was seen.
+
+\subsection{Role of the validation set}
+The validation set of 46 judgments was used to monitor training and to choose among development designs, including the move from PCST to the statute selector and the choice of training recipe, and it was never used for decisions at test time. This is a real weakness of the study, because a set of this size offers very little evidence for model selection or hyperparameter decisions. Early stopping, the choice of epoch and the choice among designs of similar quality should therefore be read as close to arbitrary, and the extent of the problem is quantified in Section~\ref{sec:res-valsize}. For this reason the later linear probes use a much larger development year in place of the validation set.
+
+\subsection{Metrics and statistics}
+Macro-averaged F1 over the four classes is the primary metric because the classes are imbalanced, and the paper also reports accuracy together with per-class precision, recall and F1. Confidence intervals are 95\% percentile bootstrap intervals over cases with 10,000 resamples \cite{r34}. Paired comparisons resample cases jointly for both systems and report the interval of the difference \cite{r28}, and accuracy differences are also tested with the exact McNemar test on discordant cases \cite{r35}. Development probes use 2,000 resamples and a pre-registered rule under which a change is adopted only when it gains at least 0.03 in macro-F1 and its interval excludes zero.
+
+\section{Result Analysis}\label{sec:results}
+\subsection{Main results on the test sets}
+Table~\ref{tab:main} and Figure~\ref{fig:scores} report every LLM system on the two test sources and on their union. Because \cls{allowed} is the most frequent class, the majority baseline reaches an accuracy of 0.465 but a macro-F1 of only 0.159. Both fine-tuned models more than double that macro-F1 on 2017 and on the full test set, reaching 0.360 for text and 0.365 for the graph model across all 608 cases. Fine-tuning is clearly beneficial relative to the untrained model, which scores 0.269 and rarely predicts \cls{disposed} (30 of 608 predictions). Prepending BM25-retrieved statute text raises accuracy to 0.438 only by pushing predictions towards \cls{allowed} (425 of 608), and macro-F1 falls to 0.255. Table~\ref{tab:paired} shows that both fine-tuned models improve on both untrained baselines by about 0.09 to 0.11 in macro-F1, with intervals that exclude zero.
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Test results from a single evaluation of frozen models on the SC-2016 ($n=50$), 2017 ($n=558$) and combined ($n=608$) sets. Brackets give 95\% bootstrap intervals for macro-F1 (mF1). Each LLM row is a single training run.}\label{tab:main}
+\begin{tabular}{@{}lcccccc@{}}\toprule
+System & \multicolumn{2}{c}{SC-2016} & \multicolumn{2}{c}{2017} & \multicolumn{2}{c}{All}\\
+& Acc & mF1 & Acc & mF1 [95\% CI] & Acc & mF1 [95\% CI]\\\midrule
+Majority & .500 & .167 & .462 & .158 & .465 & .159\\
+Zero-shot & .340 & .250 & .367 & .268 [.232, .305] & .365 & .269 [.233, .303]\\
+BM25 prompt & .320 & .211 & .448 & .259 [.229, .289] & .438 & .255 [.227, .284]\\
+QLoRA text & .440 & .316 & .489 & .365 [.322, .409] & .485 & .360 [.320, .400]\\
+QLoRA + graph & .320 & .226 & .462 & .379 [.330, .430] & .451 & .365 [.320, .412]\\
+Graph tokens removed & .320 & .223 & .461 & .378 [.329, .427] & .449 & .364 [.319, .407]\\\bottomrule
+\end{tabular}\end{table*}
+
+\begin{figure*}[!t]\centering\includegraphics[width=.8\linewidth]{test-scores}
+\caption{Test macro-F1 (a) and accuracy (b) for each system and test source with 95\% bootstrap intervals. The dotted line marks the majority baseline.}\label{fig:scores}\end{figure*}
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Paired differences (first system minus second) on the same test cases, with 95\% paired bootstrap intervals. The value $p$ is from the exact McNemar test on accuracy.}\label{tab:paired}
+\begin{tabular}{@{}llccc@{}}\toprule
+Comparison & Test set & $\Delta$ macro-F1 [95\% CI] & $\Delta$ accuracy [95\% CI] & $p$\\\midrule
+Graph $-$ text & 2017 ($n=558$) & +.014 [$-$.028, +.058] & $-$.027 [$-$.065, +.011] & .20\\
+& SC-2016 ($n=50$) & $-$.090 [$-$.179, $-$.007] & $-$.120 [$-$.220, $-$.020] & .07\\
+& All ($n=608$) & +.006 [$-$.034, +.046] & $-$.035 [$-$.071, +.002] & .08\\
+Text $-$ zero-shot & All & +.090 [+.037, +.143] & +.120 [+.069, +.171] & $<$.001\\
+Graph $-$ zero-shot & All & +.096 [+.038, +.153] & +.086 [+.031, +.140] & .003\\
+Graph $-$ BM25 prompt & All & +.110 [+.056, +.164] & +.013 [$-$.043, +.067] & .677\\
+Graph $-$ tokens removed & All & +.002 [$-$.022, +.021] & +.002 [$-$.013, +.016] & 1.00\\\bottomrule
+\end{tabular}\end{table*}
+
+The comparison between the graph and text models is the central result. On 2017 the graph model's macro-F1 point estimate is higher by 0.014, but the interval runs from $-$0.028 to +0.058, comfortably including zero and effects of either sign, and accuracy points the other way at $-$0.027. On the smaller SC-2016 set the text model leads, with a macro-F1 interval that excludes zero and $p=0.07$ on accuracy, and pooled over all 608 cases the two models are level. An earlier version of this manuscript described the graph model as the best system on 2017. That ranking is not supported, because it rests on a single-run point estimate inside its own interval, and the comparison set did not contain a strong non-LLM baseline on the same cases.
+
+\subsection{Parity of the graph and text models}\label{sec:parity}
+Table~\ref{tab:parity} restates the paired differences of Table~\ref{tab:paired} as a non-inferiority check against a margin of 0.05 in macro-F1, which is about half of the 0.09 to 0.11 gain that fine-tuning brings over the untrained baselines and is therefore small relative to an effect that the paper treats as real. A system is non-inferior to the text model when the lower end of the 95\% paired interval of its difference lies above the negative margin, and the two systems are equivalent at that margin when the whole interval lies inside it. On 2017 the macro-F1 interval runs from $-$0.028 to +0.058, so the graph model is non-inferior, and on the pooled 608 cases the interval from $-$0.034 to +0.046 lies inside $\pm$0.05, so the two models are equivalent at that margin. The same does not hold for accuracy, where the lower ends of $-$0.065 and $-$0.071 fall below the margin, and it does not hold on the 50 SC-2016 cases, whose interval is too wide to support any conclusion. Removing the graph tokens from the graph model changes macro-F1 by only +0.002 ($-$0.022 to +0.021), so the trained prefix carries no measurable per-case signal, and the parity between the two models reflects comparable reading of the text and not a benefit of the graph. The margin was fixed after the intervals had been seen, and each system was trained once, so the paper presents parity as supported on macro-F1 and not as proven, and it proposes the same margin as a prespecified test for the matched-seed experiment.
+
+\begin{table}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Non-inferiority of the graph model to the text model at a margin of 0.05, using the paired intervals of Table~\ref{tab:paired}. ``Lower end'' asks whether the lower bound exceeds $-$0.05, and ``inside'' asks whether the whole interval lies within $\pm$0.05.}\label{tab:parity}
+\begin{tabular}{@{}llccc@{}}\toprule
+Test set & Metric & Difference [95\% CI] & Lower end & Inside\\\midrule
+2017 ($n=558$) & macro-F1 & +.014 [$-$.028, +.058] & yes & no\\
+2017 ($n=558$) & accuracy & $-$.027 [$-$.065, +.011] & no & no\\
+SC-2016 ($n=50$) & macro-F1 & $-$.090 [$-$.179, $-$.007] & no & no\\
+All ($n=608$) & macro-F1 & +.006 [$-$.034, +.046] & yes & yes\\
+All ($n=608$) & accuracy & $-$.035 [$-$.071, +.002] & no & no\\
+All, tokens removed & macro-F1 & +.002 [$-$.022, +.021] & yes & yes\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Per-class behaviour}
+Table~\ref{tab:perclass} gives precision, recall and F1 for each class, and Table~\ref{tab:confusion} gives the confusion matrices. Per-class values for the QLoRA models on the 2017 and SC-2016 sets were reconstructed from the reported gold and predicted counts, class F1 values and combined matrices, and every reconstructed row reproduces its reported accuracy and macro-F1. The separate off-diagonal counts for those two sets, and per-class values for the zero-shot, BM25 and ablated systems, require per-case outputs that are not in the current repository. The paper therefore reports only accuracy and macro-F1 for those systems, as in Table~\ref{tab:main}, and it has not estimated the missing values from charts.
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\caption{Per-class precision/recall/F1. $^\dagger$Different test year and training data (2005--2015 and 2017), so this is not a paired comparison. The majority baseline on all 608 cases scores .47/1.00/.63 on allowed and zero on other classes, with accuracy .465 and macro-F1 .159.}\label{tab:perclass}
+\begin{tabular}{@{}llccccrr@{}}\toprule
+System & Test set & allowed & dismissed & disposed & partly allowed & Acc & mF1\\\midrule
+QLoRA text & 2017 (558) & .57/.70/.63 & .42/.20/.27 & .41/.49/.45 & .11/.11/.11 & 0.489 & 0.365 \\
+QLoRA + graph & 2017 (558) & .58/.52/.55 & .49/.33/.40 & .33/.58/.42 & .25/.11/.15 & 0.462 & 0.379 \\
+QLoRA text & SC-2016 (50) & .64/.56/.60 & .50/.18/.27 & .29/.67/.40 & .00/.00/.00 & 0.440 & 0.316 \\
+QLoRA + graph & SC-2016 (50) & .53/.36/.43 & .14/.09/.11 & .25/.67/.36 & .00/.00/.00 & 0.320 & 0.226 \\
+QLoRA text & All (608) & .58/.69/.63 & .42/.20/.27 & .40/.50/.44 & .10/.09/.10 & 0.485 & 0.360 \\
+QLoRA + graph & All (608) & .58/.51/.54 & .47/.32/.38 & .32/.59/.42 & .21/.09/.13 & 0.451 & 0.365 \\
+TF-IDF + LR$^\dagger$ & 2018 (645) & .52/.48/.50 & .45/.35/.39 & .46/.59/.51 & .21/.40/.28 & 0.460 & 0.421 \\
+\bottomrule\end{tabular}\end{table*}
+
+\begin{table*}[!t]\centering\footnotesize
+\caption{Confusion matrices, with rows as actual classes and columns as predicted classes (A allowed, D dismissed, Dp disposed, P partly allowed).}\label{tab:confusion}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l*{4}{>{\raggedleft\arraybackslash}p{0.72cm}}@{\hskip 8pt}*{4}{>{\raggedleft\arraybackslash}p{0.72cm}}@{\hskip 8pt}*{4}{>{\raggedleft\arraybackslash}p{0.72cm}}@{}}\toprule
+& \multicolumn{4}{c}{QLoRA text (All, 608)} & \multicolumn{4}{c}{QLoRA + graph (All, 608)} & \multicolumn{4}{c}{TF-IDF + LR (2018, 645)}\\
+& A & D & Dp & P & A & D & Dp & P & A & D & Dp & P\\\midrule
+A & 195 & 30 & 47 & 11 & 144 & 42 & 93 & 4 & 130 & 57 & 59 & 25\\
+D & 75 & 33 & 42 & 15 & 51 & 52 & 55 & 7 & 73 & 67 & 42 & 12\\
+Dp & 51 & 11 & 64 & 1 & 42 & 10 & 75 & 0 & 34 & 20 & 88 & 8\\
+P & 18 & 4 & 8 & 3 & 12 & 7 & 11 & 3 & 11 & 4 & 3 & 12\\\bottomrule
+\end{tabular}\end{table*}
+
+The graph run moves predictions on 2017 away from \cls{allowed} (232 against 317, with 258 gold cases) and towards \cls{disposed} (210 against 140, with 118 gold cases) and \cls{dismissed} (104 against 74, with 154 gold cases). This shift lifts dismissed recall from 0.20 to 0.33 and dismissed F1 from 0.272 to 0.395, while allowed F1 falls from 0.630 to 0.551, disposed F1 falls from 0.450 to 0.421, and the over-prediction of \cls{disposed} worsens. No test was specified in advance for per-class differences, and a shift in class balance between two single runs is exactly what an arbitrary perturbation of training could produce. The paper therefore reports the shift as an observation and attaches no causal claim to it. Figure~\ref{fig:classes} shows the same pattern across all 608 test cases.
+
+\begin{figure*}[!t]\centering\includegraphics[width=.8\linewidth]{classes}
+\caption{Panel (a) shows F1 per class on all 608 test cases, and panels (b) and (c) show the confusion matrices of the text and graph models.}\label{fig:classes}\end{figure*}
+
+\subsection{Graph coverage, subgroups and ablation}
+A graph prefix can be informative only when the view cites an eligible provision. Coverage is 44.8\% of training cases, 39.1\% of validation cases and 35.9\% of test cases (218 of 608), and a non-empty subgraph grows from about 3.0 seeds to 31.7 provisions on average, with 855 directed co-citation edges (Figure~\ref{fig:coverage}).
+
+\begin{figure*}[!t]\centering\includegraphics[width=.8\linewidth]{coverage}
+\caption{Panel (a) shows the node composition of validation subgraphs under the earlier PCST selector and the statute selector, and panel (b) shows the share of cases with a non-empty subgraph and the mean subgraph size per split.}\label{fig:coverage}\end{figure*}
+
+\begin{table}[!t]\centering\footnotesize
+\caption{Test results by subgraph availability (accuracy / macro-F1). Without a subgraph the graph and ablated models coincide by construction.}\label{tab:subgroup}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrccc@{}}\toprule
+Subset & $n$ & QLoRA text & QLoRA + graph & Tokens removed\\\midrule
+With subgraph & 218 & .472 / .381 & .450 / .403 & .445 / .385\\
+Without subgraph & 390 & .492 / .334 & .451 / .334 & .451 / .334\\\bottomrule
+\end{tabular}\end{table}
+
+On the 218 cases with a subgraph (Table~\ref{tab:subgroup}), the graph minus text difference is +0.022 with an interval of $-$0.048 to +0.093, which cannot be distinguished from zero. On the 390 cases without a subgraph, the graph model loses 0.041 in accuracy to the text model despite receiving no per-case graph input at all, while macro-F1 ties at 0.334. That accuracy gap cannot come from graph content, so it is direct evidence that the two runs differ for reasons other than per-case graph information. Removing the graph tokens changes 32 predictions (5.3\%), all among cases with a subgraph, and changes macro-F1 by +0.002 with an interval of $-$0.022 to +0.021. Comparing cases with and without a subgraph against each other would be misleading, because the two groups differ in composition. In the linear data reported next, text alone scores 0.482 on cases with a subgraph and 0.338 on cases without one, although no graph is involved.
+
+\subsection{Retrieval latency, storage and prompt cost}\label{sec:efficiency}
+The fourth research question was tested on a CPU, because no GPU was available for this analysis, with the scripts \texttt{benchmark\_efficiency.py} and \texttt{benchmark\_prefill.py} of the project repository. The test builds the time-safe graph from the 1,430 training judgments of 2013 and 2014 (2,936 nodes and 5,419 citation edges), runs the project's own selector on the 683 development views of 2015, and compares it with the project's BM25 evidence module over the 1,222 provisions of the Indian Penal Code, the Indian Evidence Act and the Constitution, which are the enactments whose pinned sources are public. The statute layer of the paper holds 2,619 provisions over six enactments, so the BM25 times below are a lower bound. The encoder was instantiated at its real size, and its 6,340,097 parameters reproduce the count reported in Section~\ref{sec:method}. Prompt cost was computed analytically for Qwen3-8B from its published configuration (36 layers, hidden size 4096, 8 key-value heads) and measured on a CPU with Qwen3-0.6B of the same family as a proxy. No model was scored in these tests, and the evaluation years 2017 to 2019 were not opened.
+
+In asymptotic terms, the selector scans the eligible edges once per query and ranks the candidate provisions, so its cost is $O(|E|+C\log C)$ for $|E|$ eligible edges and $C$ candidates, and a subgraph holds at most $B^2$ edges for a budget of $B=32$ nodes. The encoder costs $O(Ndh+|E_q|h^2)$ for $N$ nodes of dimension $d$, hidden width $h$ and $|E_q|$ subgraph edges, and so it does not grow with the size of the corpus. The prefill cost of the language model is $O(Lp+L^2d_a)$ in the sequence length $L$, the parameter count $p$ and the attention width $d_a$, so every token added to the prompt costs about as much as a token of the judgment, which is why added tokens are the quantity that matters when comparing ways of delivering retrieved context.
+
+\begin{table}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Per-query retrieval and encoding latency in milliseconds on a CPU (median, mean and 95th percentile), and size on disk in megabytes. The graph index holds 1,430 case nodes and is pickled, and its compressed edge list alone is 26.8 kB. BM25 runs over three acts only.}\label{tab:latency}
+\begin{tabular}{@{}lrrrrr@{}}\toprule
+Component & $n$ & Med. & Mean & p95 & MB\\\midrule
+Selector, all queries & 683 & 4.5 & 10.9 & 30.8 & 1.22\\
+Selector, non-empty & 262 & 21.0 & 22.6 & 38.0 & \\
+Encoder, 16 threads & 150 & 30.8 & 30.7 & 39.5 & 25.4\\
+Encoder, 1 thread & 150 & 258.2 & 246.1 & 346.2 & \\
+Encoder, null tokens & 50 & 0.005 & 0.006 & 0.007 & \\
+BM25, three acts & 683 & 44.3 & 43.9 & 54.4 & 1.70\\\bottomrule
+\end{tabular}\end{table}
+
+Table~\ref{tab:latency} shows that the co-citation selector returns in a median of 4.5 ms over all 683 queries, because 421 queries (61.6\%) have no eligible seed and return an empty subgraph at once, and in a median of 21.0 ms (95th percentile 38.0 ms) over the 262 queries that receive a subgraph, which has 31.2 nodes and 769 directed edges on average. BM25 needs a median of 44.3 ms (95th percentile 54.4 ms) for every query. The encoder adds a median of 30.8 ms on 16 CPU threads for a non-empty subgraph (258 ms on one thread) and 0.005 ms for the null tokens, so the expected cost of the graph path is about 23 ms per query, made up of 10.9 ms of retrieval and 0.384 times 30.7 ms of encoding, against 44 ms for BM25. A repeat run of the benchmark gave a BM25 median of 35 ms and a graph median of 5 ms, so differences of about 20\% should not be read as meaningful, although the ordering did not change. Both paths are small beside the prefill of the language model, which took about 9 s for a 1,536-token prompt on the 0.6B proxy with 8 CPU threads, but on a GPU the balance between encoder, retrieval and prefill would differ and was not measured.
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Prompt cost of one augmentation for a 1,536-token judgment view. Computation and key-value cache are analytic for Qwen3-8B in half precision. The measured column is the minimum of six interleaved CPU rounds on Qwen3-0.6B relative to the text-only prompt, and a repeat of the text-only prompt scored 0.998, which bounds the error.}\label{tab:prompt}
+\begin{tabular}{@{}lrrrrr@{}}\toprule
+Variant & Added tokens & Prefill (TFLOP) & Relative computation & KV cache (MB) & Measured on proxy\\\midrule
+Text only & 0 & 22.03 & 1.000 & 226.5 & 1.000\\
+Graph soft prefix (8 tokens) & 8 & 22.15 & 1.005 & 227.7 & 1.011\\
+BM25 evidence, within the same token budget & 0$^\dagger$ & 22.03 & 1.000 & 226.5 & \\
+BM25 evidence, appended & 384 & 27.76 & 1.260 & 283.1 & \\
+Subgraph written as provision labels & 210 & 25.16 & 1.142 & 257.5 & 1.119\\
+Subgraph written with 48 tokens of text per node & 1,424 & 43.70 & 1.983 & 436.4 & 1.919\\
+Subgraph written as labels and edge list & 5,281 & 108.41 & 4.920 & 1,005.2 & \\\bottomrule
+\end{tabular}\\[2pt]
+{\footnotesize $^\dagger$The evidence displaces up to 384 tokens of the judgment view, so the sequence is not longer and the model reads a shorter view.}
+\end{table*}
+
+Table~\ref{tab:prompt} turns to prompt length, where the soft prefix has its clearest advantage. It adds 8 tokens, 0.5\% prefill computation and 1.2 MB of key-value cache per sequence for Qwen3-8B, and the CPU proxy measures an increase of 1.1\% against a noise-control row of 0.998. The minimum over rounds is reported because individual timings varied by almost a factor of two between rounds, and an earlier single-pass measurement was discarded for that reason. A BM25 evidence passage reaches its 384-token cap for every query, and so it either lengthens the prompt by a quarter, with 26\% more computation, or displaces a quarter of the judgment view. Written as text, the same 31-node subgraph needs 210 tokens as bare provision labels (14\% more computation, 11.9\% measured), 1,424 tokens when each node carries the 48 tokens of text that the encoder embeds (98\% more, 1.92 times measured) and 5,281 tokens when its edges are listed (4.9 times the computation). The soft prefix is therefore between 26 and 660 times shorter than the textual alternatives.
+
+\begin{table}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Parameters and storage of the trained components. The adapter size is analytic at 4 bytes per parameter, and the encoder size is a measured state dictionary.}\label{tab:storage}
+\begin{tabular}{@{}lrrr@{}}\toprule
+Component & Parameters & fp32 (MB) & fp16 (MB)\\\midrule
+LoRA adapters (rank 16) & 43,646,976 & 174.6 & 87.3\\
+Graph encoder & 6,340,097 & 25.4 & 12.7\\
+Node feature table, 2,619 nodes & & 42.9 & 21.5\\\bottomrule
+\end{tabular}\end{table}
+
+Table~\ref{tab:storage} shows that the encoder raises the trainable parameters by 14.5\% over the adapters alone and the stored adapter bundle by the same fraction, while the node feature table of 2,619 nodes is computed once and takes 42.9 MB (21.5 MB in half precision). One epoch took 7.38 hours for the text model and 7.43 hours for the graph model, an increase of 0.7\%. These tests do not show that the graph path is cheaper than text-only prompting, which it is not, since it adds parameters, tokens and an encoder pass. They show that the added cost is small, that the expected retrieval cost is about half that of BM25 on a CPU, and that among the ways of delivering retrieved context that were compared the soft prefix is the most economical in prompt length. They do not measure the GPU latency or peak GPU memory of Qwen3-8B, the adapter files of the trained runs, which are not in the repository, or the full six-act statute layer, and the CPU proxy gives relative costs only.
+
+\subsection{Linear controls on the development year}\label{sec:controls}
+Table~\ref{tab:controls} reports the pre-registered controls on the 683 development cases from 2015, and no later year was scored. No candidate passes the adoption rule. Cited statutes carry real signal on their own, reaching 0.301 against a floor of 0.149, yet they contribute nothing when added to text, and co-citation neighbours add nothing further, with $T{+}G$ minus $T{+}S$ at 0.000 (interval $-$0.005 to +0.006) on the wider training window. Real graphs also do no better than randomised statutes or shuffled edges, since $T{+}G$ minus the first draw of $T{+}R$ is +0.003 (interval $-$0.006 to +0.011) and minus the first draw of $T{+}H$ is $-$0.002 (interval $-$0.009 to +0.005). The block weights were both chosen at the lowest grid value on an inner split where every block scored below text, so these differences are small partly by construction. The conclusion that the blocks do not help nevertheless stands, because no weight on the grid improved on text alone.
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Linear statute and graph controls on development year 2015 ($n=683$). Delta is macro-F1 against $T$ with a 95\% paired interval. Rows $R$ and $H$ give the mean and standard deviation over five draws.}\label{tab:controls}
+\begin{tabular}{@{}lcccc@{}}\toprule
+& \multicolumn{2}{c}{Train 2005--2014 (8,448)} & \multicolumn{2}{c}{Train 2013--2014 (1,430)}\\
+Features & mF1 & Delta & mF1 & Delta\\\midrule
+$T$: TF-IDF text & .409 & & .395 & \\
+$S$: cited provisions only & .301 & & .272 & \\
+$G$: provisions and co-citation neighbours & .271 & & .230 & \\
+$T{+}S$: non-graph statute baseline & .403 & $-$.006 [$-$.014, .000] & .395 & .000 [$-$.003, +.004]\\
+$T{+}G$: text and graph & .403 & $-$.006 [$-$.013, .000] & .390 & $-$.005 [$-$.012, +.001]\\
+$T{+}R$: randomised statutes & .405 (.003) & & .391 (.002) & \\
+$T{+}H$: shuffled edges & .406 (.002) & & .395 (.001) & \\\bottomrule
+\end{tabular}\end{table*}
+
+The subgroup results point the same way. With training on 2005--2014, $T{+}G$ minus $T$ is $-$0.005 (interval $-$0.020 to +0.005) on the 261 cases with a subgraph and $-$0.007 (interval $-$0.015 to 0.000) on the 422 cases without one, so there is no sign of a benefit concentrated where the graph exists. Because a linear fit has no random seed of its own, the paper also redrew the 2013--2014 training cases ten times to measure sensitivity to the training sample. The gap between $T{+}G$ and $T$ then has a mean of +0.001 and a standard deviation of 0.005, and it is positive in five of the ten resamples, while each model's own macro-F1 varies from about 0.30 to 0.36. This measures sensitivity to the data only, and it is no substitute for measuring seed variance in the LLMs.
+
+\subsection{Other neural baselines and the linear reference}
+Table~\ref{tab:baselines} summarises the development-year baselines. No frozen embedding model and no fine-tuned InLegalBERT model beats TF-IDF, and averaging their probabilities with TF-IDF adds nothing detectable. A TF-IDF model fixed in advance and trained on 2005--2015 and 2017 was then scored once on 645 cases decided in 2018, reaching a macro-F1 of 0.421 (interval 0.376 to 0.465) and an accuracy of 0.460 (interval 0.422 to 0.499). This is a different test year with more training data, so it is not a paired comparison with Table~\ref{tab:main}. It does mean, however, that the paper cannot claim the fine-tuned LLMs exceed a linear baseline.
+
+\begin{table*}[!t]\centering\footnotesize
+\caption{Development-year baselines on 2015 ($n=683$). Deltas are against TF-IDF on the same training window, with 95\% paired intervals.}\label{tab:baselines}
+\begin{tabular}{@{}llcc@{}}\toprule
+Model & Train & mF1 & Delta\\\midrule
+TF-IDF + LR & 2013--14 and 2005--14 & .395 and .415 & \\
+InLegalBERT frozen + LR & 2005--14 & .314 & $-$.101 [$-$.146, $-$.051]\\
+Qwen3-Embedding-0.6B frozen + LR & 2005--14 & .274 & $-$.140 [$-$.193, $-$.084]\\
+InLegalBERT fine-tuned (two seeds) & 2005--14 & .350 and .387 & $-$.065 and $-$.028\\
+SaulLM-7B frozen + LR & 2013--14 & .345 & $-$.050 [$-$.106, +.006]\\
+SaulLM-7B frozen + LR & 2008--14 & .352 & $-$.064 [$-$.113, $-$.013]\\\bottomrule
+\end{tabular}\end{table*}
+
+\subsection{Input, data, framing and labels}
+Macro-F1 of the TF-IDF model changes little with the input view, moving by $-$0.007 (interval $-$0.037 to +0.025) with a 24,000-character view and by $-$0.013 (interval $-$0.042 to +0.018) with the whole body up to the 70\% cap. Widening training from 2013--14 to 2005--14 gives +0.012 (interval $-$0.043 to +0.068). Random training subsets rise until about 4,500 cases and then flatten near 0.41, and part of the earlier slope reflected recency, since 1,430 random cases from 2005--14 score 0.343 against 0.395 for the 1,430 cases of 2013--14. Header metadata and recency weighting also failed the adoption rule, with a best result of +0.013 (interval $-$0.016 to +0.042).
+
+The leakage audit supports the masked view. On the development year no view contains a literal disposition phrase after masking, although 65--91\% of views, depending on view type, contain outcome words such as \emph{allow} or \emph{dismiss} in other contexts. A model using only those words reaches a macro-F1 of 0.232, and removing them from the baseline leaves it effectively unchanged at 0.396 against 0.395. The signal therefore does not come from residual outcome words, and the top TF-IDF features are topical, such as \emph{insurance company}, \emph{arms act} and \emph{compensation}.
+
+Task framing moves results the most, as Table~\ref{tab:framing} shows, although scores across framings are not directly comparable because each framing has its own floor. For label quality, a reader examined a random sample of 40 \cls{disposed} and 25 \cls{partly allowed} endings from training years. The reader was an LLM assistant and not a lawyer, so the following estimates are rough and need expert review. About half of the \cls{disposed} sample formed a coherent class of directions with no clear winner, whereas about 40\% would fit another label equally well, such as partial relief, remand or mixed batches. All 25 \cls{partly allowed} endings were partial relief, but similar outcomes also appear under \cls{disposed}. A rule-based relabelling agreed with a blind reading on only 26 of 40 fresh cases and was dropped before any model used it.
+
+\begin{table*}[!t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Task framings with TF-IDF and logistic regression. Development is 2015 with 2013--14 training, test is the single 2018 evaluation, and the floor is always-allowed macro-F1 on test.}\label{tab:framing}
+\begin{tabular}{@{}lccccc@{}}\toprule
+Framing & Dev Acc & Dev mF1 & Test Acc & Test mF1 [95\% CI] & Floor\\\midrule
+Four-way & .499 & .395 & .460 & .421 [.376, .465] & .148\\
+Three-way (partly merged into allowed) & .521 & .451 & .515 & .502 [.461, .540] & .212\\
+Binary, allowed against dismissed & .624 & .593 & .620 & .602 [.556, .645] & .378\\\bottomrule
+\end{tabular}\end{table*}
+
+\subsection{Effect of exclusions on difficulty}\label{sec:res-exclusions}
+The exclusions probably make the benchmark somewhat easier, by a measurable but modest amount. On the 2015 development year, 33 cases have a four-way official label and a usable view but failed the text rule, and they score an accuracy of 0.303 and a macro-F1 of 0.233, against 0.455 and 0.409 for the retained cases. Including them lowers macro-F1 by 0.007, to 0.402 on 716 cases, although an estimate from 33 cases is rough. The largest unknown is the group of 627 other-disposal judgments, which have no four-way label, cannot be scored and therefore lie outside anything the benchmark can say.
+
+\subsection{Time and text pipeline}\label{sec:res-time}
+Temporal effects can be examined inside a single text pipeline, because all archive cases are PDF text. A model trained on 2005--2009 scores 0.376, 0.370, 0.395, 0.346, 0.368 and 0.399 on the years 2010 to 2015, which shows no clear trend. Rolling two-year training windows score 0.377, 0.363 and 0.359 at one, two and three years ahead, with a standard deviation across years of about 0.02. Temporal decay in a linear model is therefore about 0.02 over two years, which is small beside the difference of 0.104 between the graph minus text gaps on the two test sets.
+
+\subsection{What 46 validation cases can resolve}\label{sec:res-valsize}
+To quantify the weakness of the validation set, the paper drew 46 cases at random from the 683 development cases 5,000 times. A model with a macro-F1 of 0.409 on all 683 cases ranges from 0.232 to 0.584 across 95\% of draws, with a standard deviation of 0.093. Two models with a true gap of 0.014 swap order in 47\% of draws, and their observed difference ranges from $-$0.196 to +0.224. A difference smaller than about 0.2 on 46 cases is therefore uninformative, and this applies to most of the differences in the development history below.
+
+\subsection{Development history and training dynamics}
+Table~\ref{tab:dev} lists every 8B development run on the 46 validation cases. In light of the previous subsection, the table is a record of what was tried and offers no evidence that any change caused an improvement, and the final graph minus text validation gap is $-$0.020 with an interval of $-$0.111 to +0.075. The PCST subgraphs were dominated by co-citing judgments, which made up 251 of 307 nodes and were represented only by their titles, and this observation motivated the move to provision-only subgraphs as a matter of design rationale, not of measured benefit. Figure~\ref{fig:loss} shows training loss for the two final runs, which see the same examples in the same order. The final 100-example loss is 0.580 for the text model and 0.590 for the graph model, and neither run recorded a non-finite loss or gradient.
+
+\begin{table}[!t]\centering\footnotesize
+\caption{Development history on the 46-case validation set. Data v0.2 has 357 SC-2016 training examples and v0.3 has 2,470. The original recipe is unweighted with a constant learning rate, and the balanced recipe adds class weights, a schedule and gradient clipping.}\label{tab:dev}
+\begin{tabular}{@{}lllccc@{}}\toprule
+Model & Data & Recipe & Epochs & Acc & mF1\\\midrule
+Qwen3-8B zero-shot & n/a & none & 0 & .348 & .318\\
+Qwen3-8B + BM25 & n/a & none & 0 & .391 & .214\\
+Qwen3-8B text & v0.2 & original & 3 & .565 & .441\\
+Qwen3-8B graph (PCST) & v0.2 & original & 3 & .435 & .244\\
+Saul-7B text & v0.2 & original & 3 & .435 & .183\\
+Qwen3-8B text & v0.2 & balanced & 3 & .478 & .377\\
+Qwen3-8B graph (PCST) & v0.2 & balanced & 3 & .435 & .283\\
+Qwen3-8B text & v0.3 & balanced & 1 & .457 & .405\\
+Qwen3-8B graph (statute) & v0.3 & balanced & 1 & .413 & .385\\\bottomrule
+\end{tabular}\end{table}
+
+\begin{figure}[!t]\centering\includegraphics[width=.95\linewidth]{loss}
+\caption{Class-weighted training loss, smoothed over about 100 examples, for the two final models.}\label{fig:loss}\end{figure}
+
+\section{Discussion}\label{sec:discussion}
+\subsection{What the fine-tuned models learn}
+A QLoRA-adapted Qwen3-8B learns a usable signal from the masked opening, and its improvement over the untrained model is statistically secure. The evidence on the nature of that signal suggests that it reflects case type and procedural posture more than any assessment of the merits, because the strongest linear features are topical and a bag-of-words model reaches the same range. Classifying from a masked opening is much harder than reading the outcome from the operative order, yet for the reasons given in the Introduction it should not be confused with forecasting a decision.
+
+\subsection{Where the limits lie}
+Across models ranging from a bag of words to fine-tuned 8B LLMs, no system tested moves far beyond the same modest range of four-way performance. More data and longer views help little beyond a few thousand cases, whereas framing and label definition move results much more. The limit therefore seems to lie in the input and the definition of the task more than in the capacity of the model.
+
+The four-class formulation is a research choice and is not required by any practical use case that the paper can identify. It reflects the Registry's own disposal categories, retains procedural dispositions that binary benchmarks discard and supports direct audit against official metadata. Since the framing substantially changes performance and part of the \cls{disposed} class appears to overlap with others, the paper reports three-way and binary framings beside it, and it suggests that any future practical study should define its classes together with practitioners. The four-way numbers are retained for comparability and not because the formulation is privileged.
+
+\subsection{Separating pipeline effects from time}
+The two test sets differ in several respects at once, and this limits what can be concluded from any comparison between them. The SC-2016 test cases come from 2016 through an OCR pipeline used by 14\% of the training data, whereas the 2017 cases come a year later through the PDF pipeline used by 86\% of the training data, and the sets also differ tenfold in size. The difference in graph minus text gaps between them may reflect the pipeline, the year, selection or sampling noise, and a single run cannot apportion it. The paper also withdraws the earlier inference that the closeness of test and validation scores shows little drift, because the validation set is far too small to support it. The single-pipeline analysis in Section~\ref{sec:res-time} puts a rough scale on the effect of time and suggests that time alone does not explain the SC-2016 gap, but it does not measure the pipeline effect directly, which would require scoring the same judgments under both pipelines with the frozen models.
+
+\subsection{Limitations}\label{sec:limits}
+Several limitations qualify these findings, and the first two bear directly on the central question. Each final LLM configuration was trained only once and for one epoch, so seed variance is unmeasured, the paired intervals capture sampling over test cases alone, and conclusions about the graph are provisional until matched seeds have been run. Randomised and shuffled controls exist only for linear models on the development year, and those models test the information in the graph without testing the prefix itself, so a linear model could miss interactions that a graph encoder might exploit. The LLMs and TF-IDF have not been compared on the same cases, because the linear test result comes from a different year.
+
+The remaining limitations concern the data. The 46-case validation set underlies the development choices. Labels depend on a phrase rule and on official metadata, selection removes harder cases and under-represents \cls{disposed}, and the label audit was not carried out by a lawyer. Only a minority of test cases receive a subgraph, which reflects both citation extraction and the restriction to six enactments, so a broader graph remains untested. The benchmark also does not separate commercial and corporate matters from the rest of the docket, so the paper reports no commercial-only result. Per-class data are incomplete for the zero-shot, BM25 and ablated systems. Finally, the paper did not measure expert performance on these masked views, so \textbf{performance relative to human judgment remains unknown} and it cannot say how hard the task is for a trained lawyer.
+
+\subsection{Ethical considerations}
+All judgments are public records released for reuse, and the graph prefix excludes case titles and party names by construction. Outcome classifiers should not be used to decide cases or to advise counterparties, insurers and litigants on the value of a claim without professional oversight, particularly because errors are distributed unevenly across outcome classes and LLMs can produce confident but unfounded legal statements \cite{r51}. The paper presents these models as research instruments for studying legal structure and evaluation methodology, and not as decision aids.
+
+\section{Further Research}\label{sec:future}
+The most important next step is to train the text, graph and randomised-prefix models across matched seeds and to evaluate them on the unopened 2019 data, because this is the necessary test of the second research question. A paired linear baseline on the same cases as the LLMs would settle whether the language models improve on a simple classifier, and an expert baseline on a sample of masked views would place all of these scores in context. Beyond these, the label problem deserves direct attention through case-by-case annotation of \cls{disposed} by legal experts, reported beside the four-way numbers and never in place of them.
+
+Other directions depend on the outcome of those experiments. Inputs drawn from before the decision, such as filings and lower-court orders, would permit a real evaluation of pre-decision classification. Citation extraction could be improved and further enactments added to raise graph coverage, above all the Indian Contract Act, the Companies Act, the Arbitration and Conciliation Act and the Insolvency and Bankruptcy Code that govern corporate disputes and the execution of agreements, and time-safe precedent signals \cite{r50} could be tested, although these extensions are justified only if the basic controls show that the current graph has an effect. Scoring identical judgments under OCR and PDF text would measure the pipeline effect directly, and rhetorical-role segmentation \cite{r41} could help to select facts and arguments from anywhere before the decision under explicit leakage audits. A commercial-only evaluation, using subject labels from the registry of the court or a classifier validated by practitioners, would show whether the conclusions hold in corporate disputes.
+
+\section{Conclusion}\label{sec:conclusion}
+The paper built a temporally disjoint, leakage-controlled framework for four-way outcome classification at the Supreme Court of India and used it to test whether a statute co-citation graph prefix can enhance a quantised language model. A QLoRA model with the eight-token graph prefix matches the QLoRA model on text alone in macro-F1, with an interval on the pooled 608 test cases that lies inside $\pm$0.05, and both clearly exceed the untrained model, so the paper achieves parity at a small and measured cost in prompt length, parameters, storage and training time. The prefix is also the most economical of the ways of carrying retrieved legal context into the prompt that were compared, because a text-based evidence passage or a textual rendering of the same subgraph needs between 26 and 660 times as many added tokens. The graph prefix shows no gain in accuracy, either in the paired LLM comparison or in linear controls where randomised statutes and shuffled edges perform as well as the real graph, a simple linear baseline reaches the same range as the language models, and the limits on performance seem to lie in the input and the definition of the task. These conclusions remain provisional in one important respect, because seed variance and a randomised control for the language model have yet to be measured, and the cost figures come from CPU measurements and analytic counts and not from the GPU on which the models were trained.
+
+\section*{Data and Code Availability}
+Both judgment sources and the statute sources are public \cite{r29,r30,r62}. The project repository contains the code that downloads, extracts, cleans, labels and splits the data, builds the graph and runs the experiments, together with the source registry and configurations. Run manifests recorded the SHA-256 of the corpus (d92f9dd3\ldots), training manifest (7b5c2c2f\ldots), graph (c5a733cd\ldots) and base-model revision (b968826d\ldots). The development-year probes and the 2018 evaluation can be reproduced from the repository's notebooks, while per-case predictions of the frozen LLM runs are not part of the current repository.
+
+\section*{Acknowledgment}
+The authors thank the maintainers of the open judgment archive and of the SC-2016 collection for making the data available, and the providers of the hosted GPU notebooks used for all experiments.
+
+\appendices
+\section{Prompt and Label Verbalisers}\label{app:prompt}
+\begin{quote}\small
+Read the opening of an Indian Supreme Court judgment. Phrases that state the final disposition have been replaced by outcome\_phrase. Answer with the final outcome: allowed, dismissed, disposed, or partly allowed.
+
+Judgment:\\
+\textless masked judgment view, truncated to the token budget\textgreater
+
+Outcome:
+\end{quote}
+The label verbalisers are `` allowed'', `` dismissed'', `` disposed'' and `` partly allowed''. The BM25 baseline prepends up to 384 tokens of retrieved provision text before the instruction, and the graph model prepends eight soft tokens.
+
+\input{references-ieee.tex}
+\end{document}
+
+\end{document}

@@ -28,6 +28,8 @@ PROBES = "jolly-phase1-probes"
 NEURAL = "jolly-phase3-neural"
 FINAL = "jolly-phase5-test"
 ROUND2 = "jolly-round2-probes"
+SAUL = "jolly-saullm-probe"
+REVIEW = "jolly-review-probes"
 REGISTRY = ROOT / "configs/sources/aws-sc-source.json"
 
 
@@ -130,6 +132,10 @@ def main() -> None:
     write(FINAL + "-smoke", "import os\nos.environ['JOLLY_SMOKE'] = '1'\n", internet=False,
           kernel_sources=[f"{OWNER}/{EXTRACT}"], cells_from=FINAL)
     write(ROUND2, "", internet=False, kernel_sources=[f"{OWNER}/{EXTRACT}"])
+    write(REVIEW, "", internet=False, kernel_sources=[f"{OWNER}/{EXTRACT}"])
+    write(SAUL, "", internet=True, kernel_sources=[f"{OWNER}/{EXTRACT}"], gpu=True)
+    write(SAUL + "-smoke", "import os\nos.environ['JOLLY_SMOKE'] = '1'\n", internet=True,
+          kernel_sources=[f"{OWNER}/{EXTRACT}"], cells_from=SAUL)
 
 
 if __name__ == "__main__":

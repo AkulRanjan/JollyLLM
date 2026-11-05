@@ -1,0 +1,62 @@
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize, >={Stealth[length=2mm]}, line width=0.5pt,
+  box/.style={draw=#1!70!black, fill=#1!10, rounded corners=2pt, align=center, minimum height=17mm, text width=31mm, inner sep=2pt},
+  box/.default=gray,
+  flow/.style={->, draw=black!70},
+  lane/.style={draw=black!35, rounded corners=4pt, inner sep=6pt},
+  lanelabel/.style={font=\sffamily\footnotesize\bfseries, text=black!75, anchor=south west, inner sep=2pt},
+  note/.style={font=\sffamily\scriptsize, text=black!65, align=left}
+]
+% Row A: time-safe graph construction, left to right
+\node[box=blue] (corpus) {Training-split judgments\\decided before $\tau(q)$};
+\node[box=blue, right=8mm of corpus] (extract) {Citation extraction\\(pattern-based)};
+\node[box=blue, right=8mm of extract] (kg) {Statute graph\\2,619 provisions\\in six enactments};
+\node[box=blue, right=8mm of kg] (edges) {Eligible edges only\\split-safe, time-safe,\\no self-edges};
+% Row D: leakage-controlled input, left to right
+\node[box=gray, below=16mm of corpus] (raw) {Query judgment $q$\\(opening of the body)};
+\node[box=gray, right=8mm of raw] (mask) {Masked view $x$\\disposition phrases\\replaced by a token};
+\node[box=gray, right=8mm of mask] (prompt) {Prompt embeddings\\$E(x)$, within a\\1,536-token budget};
+\node[box=gray, right=8mm of prompt] (seeds) {Seed provisions $S_q$\\from $x$ only, never\\the full judgment};
+% Row B: subgraph encoding, right to left
+\node[box=orange, below=16mm of seeds] (selector) {Co-citation selector\\rank by $|A(p)|$, $n(p)$\\budget $B=32$};
+\node[box=orange, left=8mm of selector] (rgcn) {Two-layer R-GCN\\256 hidden units\\node text features};
+\node[box=orange, left=8mm of rgcn] (pool) {Query-conditioned\\attention pooling\\$K=8$};
+\node[box=orange, left=8mm of pool] (tokens) {Soft graph tokens $P$\\or learned null tokens\\if no seed is eligible};
+% Row C: language model, left to right
+\node[box=teal, below=16mm of tokens] (concat) {Concatenate\\$[\,P\,;\,E(x)\,]$};
+\node[box=teal, right=8mm of concat] (llm) {Qwen3-8B, 4-bit NF4\\with LoRA adapters\\of rank 16};
+\node[box=teal, right=8mm of llm] (score) {Score each label by\\the log-likelihood of\\its verbalisation};
+\node[box=teal, right=8mm of score] (out) {\textbf{Predicted class}\\allowed, dismissed,\\disposed, partly allowed};
+% flows inside lanes
+\draw[flow] (corpus) -- (extract);
+\draw[flow] (extract) -- (kg);
+\draw[flow] (kg) -- (edges);
+\draw[flow] (raw) -- (mask);
+\draw[flow] (mask) -- (prompt);
+\draw[flow] (selector) -- (rgcn);
+\draw[flow] (rgcn) -- (pool);
+\draw[flow] (pool) -- (tokens);
+\draw[flow] (concat) -- (llm);
+\draw[flow] (llm) -- (score);
+\draw[flow] (score) -- (out);
+% flows between lanes
+\draw[flow] (edges) -- (seeds);
+\draw[flow] (seeds) -- (selector);
+\draw[flow] (tokens) -- (concat);
+\draw[flow] (mask.north) -- ++(0,3mm) -| ([xshift=-8mm]seeds.north);
+\coordinate (gap) at ($(tokens.east)!0.5!(pool.west)$);
+\coordinate (mid1) at ($(prompt.south)!0.45!(rgcn.north)$);
+\coordinate (mid2) at ($(tokens.south)!0.5!(concat.north)$);
+\draw[flow, draw=teal!70!black] (prompt.south) -- (prompt.south |- mid1) -- (gap |- mid1) -- (gap |- mid2) -- ([xshift=8mm]concat.north |- mid2) -- ([xshift=8mm]concat.north);
+% lanes
+\begin{scope}[on background layer]
+\node[lane, fill=blue!3, fit=(corpus)(edges)] (l1) {};
+\node[lane, fill=black!2, fit=(raw)(seeds)] (l4) {};
+\node[lane, fill=orange!4, fit=(selector)(tokens)] (l2) {};
+\node[lane, fill=teal!4, fit=(concat)(out)] (l3) {};
+\end{scope}
+\node[lanelabel] at (l1.north west) {A. Time-safe graph construction, offline};
+\node[lanelabel] at (l4.north west) {B. Leakage-controlled input for each case};
+\node[lanelabel, anchor=north east] at (l2.south east) {C. Per-case subgraph encoding};
+\node[lanelabel, anchor=north west] at (l3.south west) {D. Language model and scoring};
+\end{tikzpicture}
